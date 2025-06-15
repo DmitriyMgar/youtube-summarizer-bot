@@ -1,0 +1,36 @@
+# Core Dependencies for YouTube Video Summarizer Bot
+python-telegram-bot>=21.0.1
+yt-dlp>=2024.6.13
+openai>=1.50.0
+youtube-transcript-api>=0.6.2
+
+# Video Processing
+ffmpeg-python>=0.2.0
+
+# Document Generation  
+python-docx>=1.1.2
+reportlab>=4.2.2
+fpdf2>=2.7.9
+
+# Async Processing & Queue Management
+asyncio-mqtt>=0.16.1
+celery>=5.3.6
+redis>=5.0.4
+
+# Environment & Configuration
+python-dotenv>=1.0.1
+pydantic>=2.7.1
+pydantic-settings>=2.2.1
+
+# Logging & Monitoring
+structlog>=24.1.0
+
+# Testing (Development)
+pytest>=8.2.0
+pytest-asyncio>=0.23.7
+pytest-mock>=3.14.0
+
+# Code Quality (Development)
+black>=24.4.2
+flake8>=7.1.0
+mypy>=1.10.0 
