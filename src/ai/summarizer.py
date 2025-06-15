@@ -30,6 +30,8 @@ class VideoSummarizer:
         # Summarization prompts
         self.system_prompt = """You are an expert video content summarizer. Your task is to analyze YouTube video content and create comprehensive, well-structured summaries.
 
+IMPORTANT: Always respond in the SAME LANGUAGE as the video's transcript and title. If the video is in Russian, respond in Russian. If in English, respond in English. Match the language of the source content.
+
 You will receive:
 1. Video metadata (title, description, duration, etc.)
 2. Complete transcript with timestamps
@@ -42,9 +44,11 @@ Create a summary that includes:
 - Timestamps of important segments
 - Action items or takeaways (if applicable)
 
-Format your response as structured text that's easy to read and professionally formatted."""
+Format your response as structured text that's easy to read and professionally formatted.
 
-        self.user_prompt_template = """Please summarize this YouTube video:
+Remember: ALWAYS use the same language as the source video content!"""
+
+        self.user_prompt_template = """Please summarize this YouTube video in the SAME LANGUAGE as the video content:
 
 **Video Information:**
 - Title: {title}
@@ -52,6 +56,7 @@ Format your response as structured text that's easy to read and professionally f
 - Uploader: {uploader}
 - Upload Date: {upload_date}
 - Description: {description}
+- Transcript Language: {transcript_language}
 
 **Video Transcript:**
 {transcript_text}
@@ -59,7 +64,7 @@ Format your response as structured text that's easy to read and professionally f
 **Frame Analysis:**
 {frame_analysis}
 
-Please provide a comprehensive summary following the format specified in the system prompt."""
+IMPORTANT: Generate the summary in {transcript_language}. Use the same language as the transcript and title above. Please provide a comprehensive summary following the format specified in the system prompt."""
 
     async def summarize_video(self, video_data: Dict) -> Dict:
         """
@@ -136,6 +141,24 @@ Please provide a comprehensive summary following the format specified in the sys
         if len(video_info.get('description', '')) > 500:
             description += '...'
         
+        # Get transcript language info
+        transcript_language = transcripts.get('language', 'Unknown')
+        if transcript_language == 'Unknown' and transcripts.get('language_code'):
+            # Map language codes to full names
+            language_map = {
+                'ru': 'Russian',
+                'en': 'English',
+                'es': 'Spanish',
+                'fr': 'French',
+                'de': 'German',
+                'it': 'Italian',
+                'pt': 'Portuguese',
+                'zh': 'Chinese',
+                'ja': 'Japanese',
+                'ko': 'Korean'
+            }
+            transcript_language = language_map.get(transcripts.get('language_code', ''), transcripts.get('language_code', 'Unknown'))
+        
         return self.user_prompt_template.format(
             title=video_info.get('title', 'Unknown Title'),
             duration_formatted=duration_formatted,
@@ -143,7 +166,8 @@ Please provide a comprehensive summary following the format specified in the sys
             upload_date=video_info.get('upload_date', 'Unknown'),
             description=description,
             transcript_text=transcript_text,
-            frame_analysis=frame_analysis
+            frame_analysis=frame_analysis,
+            transcript_language=transcript_language
         )
     
     def _format_transcript(self, transcript_segments: List[Dict]) -> str:
@@ -206,39 +230,74 @@ Please provide a comprehensive summary following the format specified in the sys
                 if not line:
                     continue
                 
-                # Detect section headers
+                # Detect section headers (both English and Russian)
                 line_lower = line.lower()
-                if any(header in line_lower for header in ['executive summary', 'summary']):
+                
+                # Executive Summary / Исполнительное резюме
+                if any(header in line_lower for header in [
+                    'executive summary', 'summary', 'исполнительное резюме', 'резюме', 'краткое содержание'
+                ]):
                     if current_section and current_content:
                         sections[current_section] = self._join_section_content(current_section, current_content)
                     current_section = 'executive_summary'
                     current_content = []
-                elif any(header in line_lower for header in ['key points', 'main points', 'highlights']):
+                    continue
+                
+                # Key Points / Ключевые моменты
+                elif any(header in line_lower for header in [
+                    'key points', 'main points', 'highlights', 'ключевые моменты', 'основные моменты', 'главные точки'
+                ]):
                     if current_section and current_content:
                         sections[current_section] = self._join_section_content(current_section, current_content)
                     current_section = 'key_points'
                     current_content = []
-                elif any(header in line_lower for header in ['detailed summary', 'detailed', 'overview']):
+                    continue
+                
+                # Detailed Summary / Подробное резюме
+                elif any(header in line_lower for header in [
+                    'detailed summary', 'detailed', 'overview', 'подробное резюме', 'подробное содержание', 'детальное резюме'
+                ]):
                     if current_section and current_content:
                         sections[current_section] = self._join_section_content(current_section, current_content)
                     current_section = 'detailed_summary'
                     current_content = []
-                elif any(header in line_lower for header in ['timestamp', 'time', 'segments']):
+                    continue
+                
+                # Timestamps / Временные метки
+                elif any(header in line_lower for header in [
+                    'timestamp', 'time', 'segments', 'временные метки', 'важные временные метки', 'временная разметка'
+                ]):
                     if current_section and current_content:
                         sections[current_section] = self._join_section_content(current_section, current_content)
                     current_section = 'timestamps'
                     current_content = []
-                elif any(header in line_lower for header in ['takeaway', 'action', 'conclusion']):
+                    continue
+                
+                # Takeaways / Действия/Выводы
+                elif any(header in line_lower for header in [
+                    'takeaway', 'action', 'conclusion', 'действия', 'выводы', 'заключение', 'рекомендации'
+                ]):
                     if current_section and current_content:
                         sections[current_section] = self._join_section_content(current_section, current_content)
                     current_section = 'takeaways'
                     current_content = []
-                else:
-                    # Add content to current section
-                    if current_section:
-                        current_content.append(line)
-                    elif not sections['executive_summary'] and line:
-                        # If no section detected, treat as executive summary
+                    continue
+                
+                # Skip markdown headers and bold formatting
+                elif line.startswith('**') and line.endswith(':**'):
+                    continue
+                elif line.startswith('#'):
+                    continue
+                
+                # Add content to current section
+                if current_section:
+                    # Clean up the line
+                    cleaned_line = line.lstrip('•-* ').strip()
+                    if cleaned_line:
+                        current_content.append(cleaned_line)
+                elif line and not line.startswith('**'):
+                    # If no section detected yet, treat as executive summary
+                    if not sections['executive_summary']:
                         sections['executive_summary'] = line
             
             # Handle remaining content
@@ -247,14 +306,21 @@ Please provide a comprehensive summary following the format specified in the sys
             
             # Ensure we have at least some content
             if not sections['executive_summary'] and not sections['detailed_summary']:
-                sections['executive_summary'] = summary_text[:300] + '...' if len(summary_text) > 300 else summary_text
+                # Use the full text as executive summary if parsing failed
+                sections['executive_summary'] = summary_text[:500] + '...' if len(summary_text) > 500 else summary_text
+            
+            # Clean up empty sections
+            for key in ['executive_summary', 'detailed_summary']:
+                if isinstance(sections[key], str):
+                    sections[key] = sections[key].strip()
             
             return sections
             
         except Exception as e:
             logger.error(f"Error parsing summary response: {e}")
             return {
-                'executive_summary': summary_text[:300] + '...' if len(summary_text) > 300 else summary_text,
+                'executive_summary': summary_text[:500] + '...' if len(summary_text) > 500 else summary_text,
+                'detailed_summary': summary_text,
                 'raw_summary': summary_text,
                 'parse_error': str(e)
             }

@@ -21,6 +21,7 @@ from youtube.processor import YouTubeProcessor
 from ai.summarizer import VideoSummarizer
 from documents.generator import DocumentGenerator
 from utils.logging_config import setup_logging
+from localization import get_message, set_language
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -36,6 +37,8 @@ class YouTubeSummarizerBot:
         self.video_summarizer = VideoSummarizer()
         self.document_generator = DocumentGenerator()
         self.processing_task = None
+        # Set language from settings
+        set_language(settings.language)
     
     async def initialize(self):
         """Initialize all bot components."""
@@ -113,7 +116,7 @@ class YouTubeSummarizerBot:
             # Notify progress
             await self.send_processing_update(
                 request.chat_id,
-                "🤖 Generating AI summary..."
+                get_message("processing_ai_summary")
             )
             
             # Step 2: Generate AI summary
@@ -125,7 +128,7 @@ class YouTubeSummarizerBot:
             # Notify progress
             await self.send_processing_update(
                 request.chat_id,
-                "📄 Creating document..."
+                get_message("processing_document")
             )
             
             # Step 3: Generate document
@@ -172,19 +175,15 @@ class YouTubeSummarizerBot:
             summary = summary_data.get('summary', {})
             
             # Prepare completion message
-            completion_message = f"""
-✅ **Summary Complete!**
-
-📹 **Video**: {video_info.get('title', 'Unknown Title')}
-⏱️ **Duration**: {video_info.get('duration', 0) // 60}:{video_info.get('duration', 0) % 60:02d}
-🤖 **AI Model**: {summary_data.get('ai_model', settings.openai_model)}
-📊 **Tokens Used**: {summary_data.get('tokens_used', 0)}
-
-**Quick Summary**:
-{summary.get('executive_summary', 'Summary not available.')[:200]}...
-
-📁 Document attached below!
-            """
+            duration = f"{video_info.get('duration', 0) // 60}:{video_info.get('duration', 0) % 60:02d}"
+            completion_message = get_message(
+                "completion_message",
+                title=video_info.get('title', 'Unknown Title'),
+                duration=duration,
+                ai_model=summary_data.get('ai_model', settings.openai_model),
+                tokens_used=summary_data.get('tokens_used', 0),
+                executive_summary=summary.get('executive_summary', 'Summary not available.')[:200]
+            )
             
             # Send document
             with open(document_path, 'rb') as doc_file:
@@ -204,19 +203,12 @@ class YouTubeSummarizerBot:
                 
         except Exception as e:
             logger.error(f"Error sending completed document: {e}")
-            await self.send_error_message(request.chat_id, "Document was created but failed to send.")
+            await self.send_error_message(request.chat_id, get_message("document_send_failed"))
     
     async def send_error_message(self, chat_id: int, error_message: str):
         """Send error message to user."""
         try:
-            error_text = f"""
-❌ **Processing Failed**
-
-An error occurred while processing your video:
-{error_message}
-
-Please try again or contact support if the issue persists.
-            """
+            error_text = get_message("processing_failed", error_message=error_message)
             
             await self.application.bot.send_message(
                 chat_id=chat_id,

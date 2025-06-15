@@ -29,6 +29,11 @@ An AI-powered Telegram bot that summarizes YouTube videos using OpenAI's GPT mod
 - Comprehensive error handling and logging
 - User authorization and rate limiting
 
+🌐 **Localization**
+- Russian language support (default)
+- English language fallback
+- Configurable via environment variable
+
 ## Prerequisites
 
 - Python 3.11 or higher
@@ -91,6 +96,9 @@ RATE_LIMIT_WINDOW=60
 
 # FFmpeg Configuration
 FFMPEG_BINARY_PATH=ffmpeg
+
+# Language Configuration
+LANGUAGE=ru
 ```
 
 ### 3. Get Required API Keys
@@ -189,6 +197,7 @@ mypy src/
 | `SUPPORTED_FORMATS` | Output formats | `txt,docx,pdf` |
 | `REDIS_HOST` | Redis server host | `localhost` |
 | `LOG_LEVEL` | Logging level | `INFO` |
+| `LANGUAGE` | Bot interface language | `ru` |
 
 ### Processing Limits
 

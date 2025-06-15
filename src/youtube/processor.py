@@ -32,7 +32,7 @@ class YouTubeProcessor:
             'format': 'best[height<=720]',  # Limit quality for faster processing
             'writesubtitles': True,
             'writeautomaticsub': True,
-            'subtitleslangs': ['en', 'en-US', 'en-GB'],
+            'subtitleslangs': ['en', 'en-US', 'en-GB', 'ru'],  # Added Russian language support
             'skip_download': True,  # Only extract info by default
         }
         
@@ -116,25 +116,52 @@ class YouTubeProcessor:
     def _extract_transcripts_sync(self, video_id: str) -> Dict:
         """
         Synchronous transcript extraction using Context7 patterns.
-        Implements fallback strategy: manual -> auto-generated -> none
+        Implements fallback strategy: manual -> auto-generated -> any available
         """
         try:
             # Get list of available transcripts - Context7 pattern
             transcript_list = self.transcript_api.list(video_id)
             
-            # Try to find manual transcript first - Context7 pattern
+            # Try to find manual transcript first (any language)
             try:
+                # Try English first
                 transcript = transcript_list.find_manually_created_transcript(['en', 'en-US', 'en-GB'])
-                logger.info(f"Found manual transcript for {video_id}")
+                logger.info(f"Found manual English transcript for {video_id}")
             except:
-                # Fallback to auto-generated - Context7 pattern
                 try:
-                    transcript = transcript_list.find_generated_transcript(['en', 'en-US', 'en-GB'])
-                    logger.info(f"Found auto-generated transcript for {video_id}")
+                    # Try Russian
+                    transcript = transcript_list.find_manually_created_transcript(['ru'])
+                    logger.info(f"Found manual Russian transcript for {video_id}")
                 except:
-                    # Try any available transcript
-                    transcript = transcript_list.find_transcript(['en', 'en-US', 'en-GB'])
-                    logger.info(f"Found fallback transcript for {video_id}")
+                    try:
+                        # Try any manually created transcript
+                        for available_transcript in transcript_list:
+                            if not available_transcript.is_generated:
+                                transcript = available_transcript
+                                logger.info(f"Found manual transcript in {transcript.language} for {video_id}")
+                                break
+                        else:
+                            raise Exception("No manual transcripts found")
+                    except:
+                        # Fallback to auto-generated - Context7 pattern
+                        try:
+                            # Try English auto-generated
+                            transcript = transcript_list.find_generated_transcript(['en', 'en-US', 'en-GB'])
+                            logger.info(f"Found auto-generated English transcript for {video_id}")
+                        except:
+                            try:
+                                # Try Russian auto-generated
+                                transcript = transcript_list.find_generated_transcript(['ru'])
+                                logger.info(f"Found auto-generated Russian transcript for {video_id}")
+                            except:
+                                # Try any auto-generated transcript
+                                for available_transcript in transcript_list:
+                                    if available_transcript.is_generated:
+                                        transcript = available_transcript
+                                        logger.info(f"Found auto-generated transcript in {transcript.language} for {video_id}")
+                                        break
+                                else:
+                                    raise Exception("No transcripts available")
             
             # Fetch transcript data - Context7 pattern
             fetched_transcript = transcript.fetch()
@@ -256,20 +283,36 @@ class YouTubeProcessor:
             # Get video duration first
             duration_cmd = [
                 settings.ffmpeg_binary_path, '-i', str(video_path),
-                '-f', 'null', '-',
-                '2>&1', '|', 'grep', 'Duration'
+                '-f', 'null', '-', '-v', 'quiet'
             ]
             
-            # Calculate frame extraction times
-            # Extract frames at evenly spaced intervals
+            try:
+                # Try to get duration from ffprobe first
+                probe_cmd = [
+                    'ffprobe', '-v', 'quiet', '-select_streams', 'v:0',
+                    '-show_entries', 'stream=duration', '-of', 'csv=p=0', str(video_path)
+                ]
+                duration_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+                if duration_result.returncode == 0 and duration_result.stdout.strip():
+                    total_duration = float(duration_result.stdout.strip())
+                else:
+                    # Fallback: use a reasonable default duration
+                    total_duration = 600.0  # 10 minutes default
+                    logger.warning(f"Could not determine video duration, using default {total_duration}s")
+            except:
+                total_duration = 600.0
+                logger.warning(f"ffprobe not available, using default duration {total_duration}s")
+            
+            # Calculate frame extraction times in seconds
             for i in range(num_frames):
-                frame_time = (i + 1) * 100 // (num_frames + 1)  # Percentage through video
+                # Extract frames at evenly spaced intervals
+                frame_time_seconds = (i + 1) * total_duration / (num_frames + 1)
                 frame_output = output_dir / f'frame_{i:03d}.jpg'
                 
                 cmd = [
                     settings.ffmpeg_binary_path,
                     '-i', str(video_path),
-                    '-ss', f'{frame_time}%',
+                    '-ss', str(frame_time_seconds),  # Use seconds instead of percentage
                     '-vframes', '1',
                     '-q:v', '2',  # High quality
                     str(frame_output),
@@ -280,6 +323,7 @@ class YouTubeProcessor:
                 
                 if result.returncode == 0 and frame_output.exists():
                     frame_paths.append(frame_output)
+                    logger.info(f"Successfully extracted frame {i} at {frame_time_seconds:.1f}s")
                 else:
                     logger.warning(f"Failed to extract frame {i}: {result.stderr}")
             

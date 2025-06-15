@@ -14,6 +14,7 @@ from config.settings import get_settings
 from utils.validators import is_valid_youtube_url, extract_video_id
 from processing_queue.manager import QueueManager
 from youtube.processor import YouTubeProcessor
+from localization import get_message, set_language
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -25,32 +26,19 @@ class BotHandlers:
     def __init__(self, queue_manager: QueueManager, youtube_processor: YouTubeProcessor):
         self.queue_manager = queue_manager
         self.youtube_processor = youtube_processor
+        # Set language from settings
+        set_language(settings.language)
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command - welcome message and bot introduction."""
         user = update.effective_user
-        welcome_message = f"""
-🎥 **{settings.bot_name}** v{settings.bot_version}
-
-Hello {user.first_name}! 👋
-
-I can help you summarize YouTube videos using AI. Just send me a YouTube URL and I'll:
-
-🔍 Extract subtitles and key frames
-🤖 Generate an AI-powered summary  
-📄 Create a downloadable document
-
-**Commands:**
-/start - Show this welcome message
-/help - Get detailed help
-/summarize <YouTube URL> - Summarize a video
-/status - Check processing status
-/formats - See available output formats
-
-**Supported formats:** {', '.join(settings.supported_formats)}
-
-Just send me a YouTube URL to get started! 🚀
-        """
+        welcome_message = get_message(
+            "welcome_message",
+            bot_name=settings.bot_name,
+            bot_version=settings.bot_version,
+            first_name=user.first_name,
+            supported_formats=', '.join(settings.supported_formats_list)
+        )
         
         await update.message.reply_text(
             welcome_message,
@@ -61,37 +49,13 @@ Just send me a YouTube URL to get started! 🚀
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help command - detailed usage instructions."""
-        help_text = f"""
-📖 <b>{settings.bot_name} - Help Guide</b>
-
-<b>How to use:</b>
-1. Send me any YouTube URL
-2. Choose your preferred output format
-3. Wait for AI processing (1-5 minutes)
-4. Download your summary document
-
-<b>Supported URLs:</b>
-• youtube.com/watch?v=VIDEO_ID
-• youtu.be/VIDEO_ID
-• m.youtube.com/watch?v=VIDEO_ID
-
-<b>Commands:</b>
-• <code>/summarize [URL]</code> - Process a specific video
-• <code>/status</code> - Check current processing queue
-• <code>/formats</code> - View available document formats
-• <code>/cancel</code> - Cancel your current request
-
-<b>Limits:</b>
-• Maximum video length: {settings.max_video_duration // 60} minutes
-• Rate limit: {settings.rate_limit_messages} requests per {settings.rate_limit_window} seconds
-
-<b>Privacy:</b>
-• Videos are processed temporarily and not stored
-• Only subtitles and key frames are extracted
-• Your data is not shared with third parties
-
-Need more help? Contact the bot administrator.
-        """
+        help_text = get_message(
+            "help_text",
+            bot_name=settings.bot_name,
+            max_duration=settings.max_video_duration // 60,
+            rate_limit_messages=settings.rate_limit_messages,
+            rate_limit_window=settings.rate_limit_window
+        )
         
         await update.message.reply_text(
             help_text,
@@ -100,24 +64,16 @@ Need more help? Contact the bot administrator.
     
     async def formats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /formats command - show available output formats."""
-        formats_text = f"""
-📄 **Available Output Formats**
-
-**Supported formats:**
-"""
-        
-        format_descriptions = {
-            'txt': '📝 Plain text (.txt) - Simple, readable format',
-            'docx': '📄 Word Document (.docx) - Rich formatting with headings',
-            'pdf': '📕 PDF Document (.pdf) - Professional formatted output'
-        }
+        formats_text = get_message("formats_title") + "\n\n"
+        formats_text += get_message("formats_supported") + "\n"
         
         for fmt in settings.supported_formats_list:
-            if fmt in format_descriptions:
-                formats_text += f"• {format_descriptions[fmt]}\n"
+            description = get_message(f"format_descriptions.{fmt}")
+            if description and not description.startswith("Missing"):
+                formats_text += f"• {description}\n"
         
-        formats_text += f"\n**Default format:** {settings.default_format.upper()}"
-        formats_text += "\n\nYou can specify format when requesting: `/summarize [URL] format:[format]`"
+        formats_text += "\n" + get_message("formats_default", default_format=settings.default_format.upper())
+        formats_text += "\n\n" + get_message("formats_specify")
         
         await update.message.reply_text(
             formats_text,
@@ -130,24 +86,15 @@ Need more help? Contact the bot administrator.
         queue_status = await self.queue_manager.get_user_status(user_id)
         
         if queue_status:
-            status_text = f"""
-⏳ **Processing Status**
-
-**Your request:**
-• Video ID: `{queue_status['video_id']}`
-• Status: {queue_status['status']}
-• Position in queue: {queue_status['position']}
-• Estimated time: {queue_status['estimated_time']} minutes
-
-Please wait for processing to complete...
-            """
+            status_text = get_message(
+                "status_processing",
+                video_id=queue_status['video_id'],
+                status=queue_status['status'],
+                position=queue_status['position'],
+                estimated_time=queue_status['estimated_time']
+            )
         else:
-            status_text = """
-✅ **No Active Requests**
-
-You don't have any videos currently being processed.
-Send me a YouTube URL to start a new summary!
-            """
+            status_text = get_message("status_no_requests")
         
         await update.message.reply_text(
             status_text,
@@ -158,7 +105,7 @@ Send me a YouTube URL to start a new summary!
         """Handle /summarize command with URL parameter."""
         if not context.args:
             await update.message.reply_text(
-                "❌ Please provide a YouTube URL.\n\nUsage: `/summarize [YouTube URL]`",
+                get_message("error_no_url"),
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -175,8 +122,11 @@ Send me a YouTube URL to start a new summary!
                         output_format = requested_format
                     else:
                         await update.message.reply_text(
-                            f"❌ Unsupported format: {requested_format}\n\n"
-                            f"Available formats: {', '.join(settings.supported_formats_list)}"
+                            get_message(
+                                "error_unsupported_format",
+                                format=requested_format,
+                                available_formats=', '.join(settings.supported_formats_list)
+                            )
                         )
                         return
         
@@ -190,8 +140,7 @@ Send me a YouTube URL to start a new summary!
             await self.process_youtube_url(update, url, settings.default_format)
         else:
             await update.message.reply_text(
-                "❌ This doesn't appear to be a valid YouTube URL.\n\n"
-                "Please send a valid YouTube URL or use /help for more information."
+                get_message("error_invalid_url")
             )
     
     async def process_youtube_url(self, update: Update, url: str, output_format: str) -> None:
@@ -201,7 +150,7 @@ Send me a YouTube URL to start a new summary!
         # Security check - validate allowed users
         if settings.allowed_users_list and user.id not in settings.allowed_users_list:
             await update.message.reply_text(
-                "❌ Sorry, you are not authorized to use this bot."
+                get_message("error_unauthorized")
             )
             logger.warning(f"Unauthorized user {user.id} ({user.username}) attempted to use bot")
             return
@@ -209,7 +158,7 @@ Send me a YouTube URL to start a new summary!
         # Rate limiting check
         if not await self.queue_manager.check_rate_limit(user.id):
             await update.message.reply_text(
-                f"❌ Rate limit exceeded. Please wait {settings.rate_limit_window} seconds between requests."
+                get_message("error_rate_limit", rate_limit_window=settings.rate_limit_window)
             )
             return
         
@@ -217,14 +166,14 @@ Send me a YouTube URL to start a new summary!
         video_id = extract_video_id(url)
         if not video_id:
             await update.message.reply_text(
-                "❌ Could not extract video ID from URL. Please check the URL and try again."
+                get_message("error_extract_video_id")
             )
             return
         
         # Queue size check
         if await self.queue_manager.get_queue_size() >= settings.max_queue_size:
             await update.message.reply_text(
-                "❌ Processing queue is full. Please try again later."
+                get_message("error_queue_full")
             )
             return
         
@@ -239,11 +188,11 @@ Send me a YouTube URL to start a new summary!
             )
             
             await update.message.reply_text(
-                f"✅ **Video queued for processing!**\n\n"
-                f"📹 Video ID: `{video_id}`\n"
-                f"📄 Output format: {output_format.upper()}\n"
-                f"⏱️ Estimated processing time: 2-5 minutes\n\n"
-                f"I'll send you the summary document when it's ready! 🚀",
+                get_message(
+                    "success_queued",
+                    video_id=video_id,
+                    output_format=output_format.upper()
+                ),
                 parse_mode=ParseMode.MARKDOWN
             )
             
@@ -252,7 +201,7 @@ Send me a YouTube URL to start a new summary!
         except Exception as e:
             logger.error(f"Error queuing video {video_id} for user {user.id}: {e}")
             await update.message.reply_text(
-                "❌ An error occurred while queuing your request. Please try again later."
+                get_message("error_general")
             )
     
     async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -261,11 +210,11 @@ Send me a YouTube URL to start a new summary!
         
         if await self.queue_manager.cancel_user_request(user_id):
             await update.message.reply_text(
-                "✅ Your processing request has been cancelled."
+                get_message("success_cancelled")
             )
         else:
             await update.message.reply_text(
-                "❌ No active processing request found to cancel."
+                get_message("error_no_cancel")
             )
 
 
@@ -289,11 +238,29 @@ def get_command_handlers(queue_manager: QueueManager, youtube_processor: YouTube
 
 def get_bot_commands() -> List[BotCommand]:
     """Get list of bot commands for Telegram's command menu."""
+    set_language(settings.language)  # Ensure language is set
+    
+    # Safely get command descriptions
+    try:
+        commands = get_message("commands")
+        if isinstance(commands, dict):
+            return [
+                BotCommand("start", commands.get("start", "Запустить бота")),
+                BotCommand("help", commands.get("help", "Получить помощь")),
+                BotCommand("summarize", commands.get("summarize", "Создать изложение видео YouTube")),
+                BotCommand("status", commands.get("status", "Проверить статус обработки")),
+                BotCommand("formats", commands.get("formats", "Посмотреть доступные форматы")),
+                BotCommand("cancel", commands.get("cancel", "Отменить текущий запрос"))
+            ]
+    except Exception as e:
+        logger.warning(f"Error getting localized commands: {e}")
+    
+    # Fallback to Russian commands
     return [
-        BotCommand("start", "Start the bot and see welcome message"),
-        BotCommand("help", "Get detailed help and usage instructions"),
-        BotCommand("summarize", "Summarize a YouTube video"),
-        BotCommand("status", "Check processing status"),
-        BotCommand("formats", "View available output formats"),
-        BotCommand("cancel", "Cancel current processing request")
+        BotCommand("start", "Запустить бота и увидеть приветственное сообщение"),
+        BotCommand("help", "Получить подробную справку и инструкции по использованию"),
+        BotCommand("summarize", "Создать изложение видео YouTube"),
+        BotCommand("status", "Проверить статус обработки"),
+        BotCommand("formats", "Посмотреть доступные форматы вывода"),
+        BotCommand("cancel", "Отменить текущий запрос на обработку")
     ] 

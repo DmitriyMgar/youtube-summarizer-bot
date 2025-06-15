@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     
     # FFmpeg Configuration
     ffmpeg_binary_path: str = Field('ffmpeg', env='FFMPEG_BINARY_PATH')
+    
+    # Language Configuration
+    language: str = Field('ru', env='LANGUAGE')
 
     @property
     def supported_formats_list(self) -> List[str]:
@@ -82,6 +85,14 @@ class Settings(BaseSettings):
             if v not in supported_formats:
                 raise ValueError(f'Default format must be one of: {supported_formats}')
         return v
+    
+    @field_validator('language')
+    @classmethod
+    def validate_language(cls, v):
+        allowed_languages = ['ru', 'en']
+        if v.lower() not in allowed_languages:
+            raise ValueError(f'Language must be one of: {allowed_languages}')
+        return v.lower()
 
     model_config = {
         'env_file': '.env',
