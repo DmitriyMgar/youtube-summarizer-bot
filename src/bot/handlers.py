@@ -62,30 +62,30 @@ Just send me a YouTube URL to get started! 🚀
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help command - detailed usage instructions."""
         help_text = f"""
-📖 **{settings.bot_name} - Help Guide**
+📖 <b>{settings.bot_name} - Help Guide</b>
 
-**How to use:**
+<b>How to use:</b>
 1. Send me any YouTube URL
 2. Choose your preferred output format
 3. Wait for AI processing (1-5 minutes)
 4. Download your summary document
 
-**Supported URLs:**
+<b>Supported URLs:</b>
 • youtube.com/watch?v=VIDEO_ID
 • youtu.be/VIDEO_ID
 • m.youtube.com/watch?v=VIDEO_ID
 
-**Commands:**
-• `/summarize <URL>` - Process a specific video
-• `/status` - Check current processing queue
-• `/formats` - View available document formats
-• `/cancel` - Cancel your current request
+<b>Commands:</b>
+• <code>/summarize [URL]</code> - Process a specific video
+• <code>/status</code> - Check current processing queue
+• <code>/formats</code> - View available document formats
+• <code>/cancel</code> - Cancel your current request
 
-**Limits:**
+<b>Limits:</b>
 • Maximum video length: {settings.max_video_duration // 60} minutes
 • Rate limit: {settings.rate_limit_messages} requests per {settings.rate_limit_window} seconds
 
-**Privacy:**
+<b>Privacy:</b>
 • Videos are processed temporarily and not stored
 • Only subtitles and key frames are extracted
 • Your data is not shared with third parties
@@ -95,7 +95,7 @@ Need more help? Contact the bot administrator.
         
         await update.message.reply_text(
             help_text,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
     
     async def formats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -112,12 +112,12 @@ Need more help? Contact the bot administrator.
             'pdf': '📕 PDF Document (.pdf) - Professional formatted output'
         }
         
-        for fmt in settings.supported_formats:
+        for fmt in settings.supported_formats_list:
             if fmt in format_descriptions:
                 formats_text += f"• {format_descriptions[fmt]}\n"
         
         formats_text += f"\n**Default format:** {settings.default_format.upper()}"
-        formats_text += "\n\nYou can specify format when requesting: `/summarize <URL> format:<format>`"
+        formats_text += "\n\nYou can specify format when requesting: `/summarize [URL] format:[format]`"
         
         await update.message.reply_text(
             formats_text,
@@ -158,7 +158,7 @@ Send me a YouTube URL to start a new summary!
         """Handle /summarize command with URL parameter."""
         if not context.args:
             await update.message.reply_text(
-                "❌ Please provide a YouTube URL.\n\nUsage: `/summarize <YouTube URL>`",
+                "❌ Please provide a YouTube URL.\n\nUsage: `/summarize [YouTube URL]`",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -171,12 +171,12 @@ Send me a YouTube URL to start a new summary!
             for arg in context.args[1:]:
                 if arg.startswith('format:'):
                     requested_format = arg.split(':', 1)[1].lower()
-                    if requested_format in settings.supported_formats:
+                    if requested_format in settings.supported_formats_list:
                         output_format = requested_format
                     else:
                         await update.message.reply_text(
                             f"❌ Unsupported format: {requested_format}\n\n"
-                            f"Available formats: {', '.join(settings.supported_formats)}"
+                            f"Available formats: {', '.join(settings.supported_formats_list)}"
                         )
                         return
         
@@ -199,7 +199,7 @@ Send me a YouTube URL to start a new summary!
         user = update.effective_user
         
         # Security check - validate allowed users
-        if settings.allowed_users and user.id not in settings.allowed_users:
+        if settings.allowed_users_list and user.id not in settings.allowed_users_list:
             await update.message.reply_text(
                 "❌ Sorry, you are not authorized to use this bot."
             )

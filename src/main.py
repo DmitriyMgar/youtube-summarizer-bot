@@ -237,7 +237,13 @@ Please try again or contact support if the issue persists.
             
             # Start the bot
             logger.info("Starting YouTube Summarizer Bot...")
-            await self.application.run_polling()
+            await self.application.initialize()
+            await self.application.start()
+            await self.application.updater.start_polling()
+            
+            # Keep running until interrupted
+            while True:
+                await asyncio.sleep(1)
             
         except KeyboardInterrupt:
             logger.info("Bot shutdown requested by user")
@@ -265,7 +271,9 @@ Please try again or contact support if the issue persists.
             
             # Stop the application
             if self.application:
+                await self.application.updater.stop()
                 await self.application.stop()
+                await self.application.shutdown()
             
             logger.info("Bot shutdown completed")
             
@@ -273,16 +281,20 @@ Please try again or contact support if the issue persists.
             logger.error(f"Error during shutdown: {e}")
 
 
-def main():
-    """Main entry point."""
+async def async_main():
+    """Async main function."""
     # Setup logging
     setup_logging(settings.log_level)
     
     # Create and run bot
     bot = YouTubeSummarizerBot()
-    
+    await bot.run()
+
+
+def main():
+    """Main entry point."""
     try:
-        asyncio.run(bot.run())
+        asyncio.run(async_main())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:

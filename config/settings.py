@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     processing_timeout: int = Field(300, env='PROCESSING_TIMEOUT')  # 5 minutes
     
     # Document Generation
-    supported_formats: List[str] = Field(['txt', 'docx', 'pdf'], env='SUPPORTED_FORMATS')
+    supported_formats: str = Field(default='txt,docx,pdf', env='SUPPORTED_FORMATS')
     default_format: str = Field('txt', env='DEFAULT_FORMAT')
     
     # Redis Configuration
@@ -45,28 +45,26 @@ class Settings(BaseSettings):
     redis_password: Optional[str] = Field(None, env='REDIS_PASSWORD')
     
     # Security Settings
-    allowed_users: List[int] = Field([], env='ALLOWED_USERS')
+    allowed_users: str = Field(default='', env='ALLOWED_USERS')
     rate_limit_messages: int = Field(10, env='RATE_LIMIT_MESSAGES')
     rate_limit_window: int = Field(60, env='RATE_LIMIT_WINDOW')
     
     # FFmpeg Configuration
     ffmpeg_binary_path: str = Field('ffmpeg', env='FFMPEG_BINARY_PATH')
 
-    @field_validator('supported_formats', mode='before')
-    @classmethod
-    def parse_supported_formats(cls, v):
-        if isinstance(v, str):
-            if not v.strip():  # Handle empty string
-                return ['txt', 'docx', 'pdf']  # Default formats
-            return [fmt.strip() for fmt in v.split(',')]
-        return v if v else ['txt', 'docx', 'pdf']  # Default formats
+    @property
+    def supported_formats_list(self) -> List[str]:
+        """Get supported formats as a list."""
+        if not self.supported_formats.strip():
+            return ['txt', 'docx', 'pdf']
+        return [fmt.strip() for fmt in self.supported_formats.split(',')]
     
-    @field_validator('allowed_users', mode='before')
-    @classmethod
-    def parse_allowed_users(cls, v):
-        if isinstance(v, str) and v:
-            return [int(user_id.strip()) for user_id in v.split(',') if user_id.strip()]
-        return v if v else []
+    @property
+    def allowed_users_list(self) -> List[int]:
+        """Get allowed users as a list."""
+        if not self.allowed_users.strip():
+            return []
+        return [int(user_id.strip()) for user_id in self.allowed_users.split(',') if user_id.strip()]
     
     @field_validator('log_level')
     @classmethod
@@ -79,14 +77,19 @@ class Settings(BaseSettings):
     @field_validator('default_format')
     @classmethod
     def validate_default_format(cls, v, info):
-        if hasattr(info, 'data') and 'supported_formats' in info.data and v not in info.data['supported_formats']:
-            raise ValueError(f'Default format must be one of: {info.data["supported_formats"]}')
+        if hasattr(info, 'data') and 'supported_formats' in info.data:
+            supported_formats = [fmt.strip() for fmt in info.data['supported_formats'].split(',')]
+            if v not in supported_formats:
+                raise ValueError(f'Default format must be one of: {supported_formats}')
         return v
 
-    class Config:
-        env_file = '.env'
-        env_file_encoding = 'utf-8'
-        case_sensitive = False
+    model_config = {
+        'env_file': '.env',
+        'env_file_encoding': 'utf-8',
+        'case_sensitive': False,
+        'env_nested_delimiter': '__',
+        'extra': 'ignore'
+    }
 
 
 # Global settings instance
