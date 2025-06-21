@@ -217,6 +217,7 @@ backup/
 backups/
 
 # Project specific
+docs/
 processed_videos/
 summaries/
 transcripts/
