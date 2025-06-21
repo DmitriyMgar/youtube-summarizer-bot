@@ -369,4 +369,203 @@ IMPORTANT: Generate the summary in {transcript_language}. Use the same language 
             
         except Exception as e:
             logger.error(f"Error in sentiment analysis: {e}")
-            return {'sentiment': 'neutral', 'confidence': 0.0, 'error': str(e)} 
+            return {'sentiment': 'neutral', 'confidence': 0.0, 'error': str(e)}
+
+    async def summarize(self, transcript_data: dict) -> dict:
+        """
+        Создание конспекта на основе транскрипта
+        
+        Args:
+            transcript_data: Данные транскрипта от YouTubeProcessor
+            
+        Returns:
+            dict: Структурированный конспект
+        """
+        try:
+            # Подготавливаем данные для суммаризации
+            prepared_content = self._prepare_content(transcript_data)
+            
+            # Создаем промпт
+            prompt = self._build_prompt(prepared_content, transcript_data)
+            
+            # Отправляем запрос к OpenAI
+            response = await self._make_request(prompt)
+            
+            # Парсим и структурируем ответ
+            structured_summary = self._parse_response(response)
+            
+            return {
+                "video_id": transcript_data["video_id"],
+                "title": transcript_data["title"],
+                "channel": transcript_data["channel"],
+                "duration": transcript_data["duration"],
+                "summary": structured_summary,
+                "timestamp": datetime.now().isoformat(),
+                "model_used": self.model_name,
+                "language": transcript_data.get("language", "auto")
+            }
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {str(e)}")
+            raise
+
+    async def correct_transcript(self, subtitle_data: dict) -> dict:
+        """
+        Исправление субтитров с помощью ИИ
+        
+        Args:
+            subtitle_data: Данные субтитров из extract_raw_subtitles
+            
+        Returns:
+            dict: Исправленные субтитры с сохранением временных меток
+        """
+        try:
+            # Подготавливаем текст для ИИ обработки
+            raw_text = self._prepare_text_for_correction(subtitle_data["subtitles"])
+            
+            # Создаем промпт для коррекции
+            correction_prompt = self._build_correction_prompt(raw_text, subtitle_data)
+            
+            # Отправляем запрос к OpenAI
+            response = await self._make_correction_request(correction_prompt)
+            
+            # Парсим ответ и восстанавливаем временные метки
+            corrected_subtitles = self._parse_corrected_response(response, subtitle_data["subtitles"])
+            
+            # Возвращаем обновленные данные
+            result = subtitle_data.copy()
+            result["subtitles"] = corrected_subtitles
+            result["corrected"] = True
+            result["correction_method"] = "ai_grammar_fix"
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error correcting transcript: {str(e)}")
+            raise
+
+    def _prepare_text_for_correction(self, subtitles: list) -> str:
+        """Подготовка текста субтитров для ИИ коррекции"""
+        # Группируем короткие фразы в предложения
+        sentences = []
+        current_sentence = []
+        
+        for i, subtitle in enumerate(subtitles):
+            text = subtitle.text if hasattr(subtitle, 'text') else subtitle["text"]
+            text = text.strip()
+            
+            if not text:
+                continue
+                
+            # Добавляем маркер временной метки для сохранения структуры
+            marked_text = f"[{i}]{text}"
+            current_sentence.append(marked_text)
+            
+            # Если предложение заканчивается или достигли лимита
+            if text.endswith(('.', '!', '?')) or len(current_sentence) >= 5:
+                sentences.append(' '.join(current_sentence))
+                current_sentence = []
+        
+        # Добавляем остатки
+        if current_sentence:
+            sentences.append(' '.join(current_sentence))
+        
+        return '\n'.join(sentences)
+
+    def _build_correction_prompt(self, text: str, subtitle_data: dict) -> str:
+        """Создание промпта для коррекции субтитров"""
+        language = subtitle_data.get("language", "русский")
+        auto_generated = subtitle_data.get("auto_generated", True)
+        
+        correction_type = "автоматически сгенерированных" if auto_generated else "ручных"
+        
+        prompt = f"""
+Задача: Исправить грамматику, пунктуацию и структуру текста {correction_type} субтитров видео.
+
+Видео: "{subtitle_data.get('title', 'Неизвестно')}"
+Язык: {language}
+Тип субтитров: {correction_type}
+
+ВАЖНО: 
+1. Сохраняй маркеры [номер] в начале каждого сегмента - они нужны для синхронизации
+2. Исправляй только грамматику, пунктуацию и структуру предложений
+3. НЕ изменяй смысл и содержание
+4. НЕ добавляй новую информацию
+5. Объединяй короткие фразы в полные предложения где это логично
+6. Убирай повторы и заикания
+7. Улучшай читаемость, сохраняя естественность речи
+
+Исходный текст субтитров:
+{text}
+
+Исправленный текст:"""
+
+        return prompt
+
+    async def _make_correction_request(self, prompt: str) -> str:
+        """Отправка запроса к OpenAI для коррекции"""
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "Ты эксперт по редактированию текстов. Твоя задача - улучшить качество субтитров, сохраняя их смысл и структуру временных меток."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=4000,
+                temperature=0.3,  # Низкая температура для более точной коррекции
+                top_p=0.9
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error(f"OpenAI API error during correction: {str(e)}")
+            raise
+
+    def _parse_corrected_response(self, corrected_text: str, original_subtitles: list) -> list:
+        """Парсинг исправленного текста и восстановление временных меток"""
+        corrected_segments = []
+        lines = corrected_text.split('\n')
+        
+        # Создаем словарь для быстрого поиска оригинальных данных
+        original_map = {}
+        for i, subtitle in enumerate(original_subtitles):
+            original_map[i] = subtitle
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Ищем маркеры [номер] в тексте
+            import re
+            markers = re.findall(r'\[(\d+)\]', line)
+            
+            if markers:
+                # Получаем первый маркер как основу для временной метки
+                base_index = int(markers[0])
+                
+                # Убираем все маркеры из текста
+                cleaned_text = re.sub(r'\[\d+\]', '', line).strip()
+                
+                if cleaned_text and base_index in original_map:
+                    # Создаем новый сегмент с исправленным текстом
+                    original = original_map[base_index]
+                    
+                    corrected_segment = {
+                        "start": original.start if hasattr(original, 'start') else original["start"],
+                        "duration": original.duration if hasattr(original, 'duration') else original["duration"],
+                        "text": cleaned_text
+                    }
+                    
+                    corrected_segments.append(corrected_segment)
+        
+        # Если что-то пошло не так, возвращаем оригинал
+        if not corrected_segments:
+            logger.warning("Failed to parse corrected subtitles, returning original")
+            return original_subtitles
+        
+        return corrected_segments 
