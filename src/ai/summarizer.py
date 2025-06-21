@@ -214,7 +214,7 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
     def _analyze_frames(self, frames: List[str]) -> str:
         """Provide basic frame analysis description."""
         if not frames:
-            return "No frames available for analysis."
+            return "Video frame extraction is disabled or no frames were extracted. Analysis is based on transcript only."
         
         return f"Video contains {len(frames)} key frames extracted for visual context analysis. " \
                f"These frames provide visual information to supplement the transcript analysis."

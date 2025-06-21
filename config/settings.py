@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # FFmpeg Configuration
     ffmpeg_binary_path: str = Field('ffmpeg', env='FFMPEG_BINARY_PATH')
     
+    # Video Frame Extraction
+    extract_video_frames: bool = Field(False, env='EXTRACT_VIDEO_FRAMES')
+    max_frames_count: int = Field(3, env='MAX_FRAMES_COUNT')
+    
     # Language Configuration
     language: str = Field('ru', env='LANGUAGE')
 

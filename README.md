@@ -34,6 +34,18 @@ An AI-powered Telegram bot that summarizes YouTube videos using OpenAI's GPT mod
 - English language fallback
 - Configurable via environment variable
 
+🖼️ **Video Frame Extraction**
+- Optional screenshot analysis (disabled by default to save time/tokens)
+
+📋 **Subtitle Processing**
+- Automatic and manual subtitle extraction with AI correction
+
+📄 **Document Generation**
+- Professional formatting with timestamps and structure
+
+🔄 **Rate Limiting & Security**
+- User restrictions and request throttling
+
 ## Prerequisites
 
 - Python 3.11 or higher
@@ -96,6 +108,10 @@ RATE_LIMIT_WINDOW=60
 
 # FFmpeg Configuration
 FFMPEG_BINARY_PATH=ffmpeg
+
+# Video Frame Extraction (скриншоты)
+EXTRACT_VIDEO_FRAMES=false  # true для включения извлечения кадров (займет больше времени и токенов)
+MAX_FRAMES_COUNT=3          # количество извлекаемых кадров из видео
 
 # Language Configuration
 LANGUAGE=ru
@@ -198,6 +214,8 @@ mypy src/
 | `REDIS_HOST` | Redis server host | `localhost` |
 | `LOG_LEVEL` | Logging level | `INFO` |
 | `LANGUAGE` | Bot interface language | `ru` |
+| `EXTRACT_VIDEO_FRAMES` | Enable video frame extraction | `false` |
+| `MAX_FRAMES_COUNT` | Number of frames to extract | `3` |
 
 ### Processing Limits
 

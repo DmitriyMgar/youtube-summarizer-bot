@@ -438,11 +438,17 @@ class YouTubeProcessor:
             video_info = await self.get_video_info(video_url)
             video_id = video_info['id']
             
-            # Extract transcripts and frames in parallel
+            # Extract transcripts and frames in parallel (if enabled)
             transcript_task = asyncio.create_task(self.get_video_transcripts(video_id))
-            frames_task = asyncio.create_task(self.extract_video_frames(video_url, 3))
             
-            transcripts, frames = await asyncio.gather(transcript_task, frames_task)
+            if settings.extract_video_frames:
+                frames_task = asyncio.create_task(self.extract_video_frames(video_url, settings.max_frames_count))
+                transcripts, frames = await asyncio.gather(transcript_task, frames_task)
+                logger.info(f"Extracted {len(frames)} video frames")
+            else:
+                transcripts = await transcript_task
+                frames = []
+                logger.info("Video frame extraction is disabled in settings")
             
             result = {
                 'video_info': video_info,
