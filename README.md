@@ -46,6 +46,12 @@ An AI-powered Telegram bot that summarizes YouTube videos using OpenAI's GPT mod
 🔄 **Rate Limiting & Security**
 - User restrictions and request throttling
 
+📺 **Channel Subscription Control**
+- Restrict bot access to channel subscribers only
+- Configurable channel verification
+- Redis-based caching for optimal performance
+- Whitelist system for verified users
+
 ## Prerequisites
 
 - Python 3.11 or higher
@@ -115,6 +121,11 @@ MAX_FRAMES_COUNT=3          # количество извлекаемых кад
 
 # Language Configuration
 LANGUAGE=ru
+
+# Channel Subscription Control
+SUBSCRIPTION_CHECK_ENABLED=true           # Enable/disable subscription verification
+REQUIRED_CHANNEL_USERNAME=logloss_notes   # Channel username (without @)
+SUBSCRIPTION_CACHE_TTL=300                # Cache duration for subscription checks (seconds)
 ```
 
 ### 3. Get Required API Keys
@@ -150,10 +161,21 @@ python main.py
 
 ### Using the Bot
 
-1. **Send a YouTube URL** - Just paste any YouTube link
-2. **Choose format** (optional) - Use `/summarize <URL> format:pdf`
-3. **Wait for processing** - Typically 2-5 minutes
-4. **Download document** - Receive formatted summary
+1. **Subscribe to required channel** - Must be subscribed to [@logloss_notes](https://t.me/logloss_notes) (if enabled)
+2. **Send a YouTube URL** - Just paste any YouTube link
+3. **Choose format** (optional) - Use `/summarize <URL> format:pdf`
+4. **Wait for processing** - Typically 2-5 minutes
+5. **Download document** - Receive formatted summary
+
+### Channel Subscription Feature
+
+When enabled (`SUBSCRIPTION_CHECK_ENABLED=true`), the bot requires users to be subscribed to a specific Telegram channel before processing requests:
+
+- **Required Channel**: Configurable via `REQUIRED_CHANNEL_USERNAME`
+- **Verification**: Bot checks subscription status using Telegram API
+- **Caching**: Subscription status cached for 5 minutes, verified users whitelisted for 24 hours
+- **Error Handling**: Bot allows access if API check fails to ensure availability
+- **Management**: Use `check_whitelist.py` script to view/manage whitelisted users
 
 ## Architecture
 
@@ -216,6 +238,9 @@ mypy src/
 | `LANGUAGE` | Bot interface language | `ru` |
 | `EXTRACT_VIDEO_FRAMES` | Enable video frame extraction | `false` |
 | `MAX_FRAMES_COUNT` | Number of frames to extract | `3` |
+| `SUBSCRIPTION_CHECK_ENABLED` | Enable channel subscription verification | `true` |
+| `REQUIRED_CHANNEL_USERNAME` | Required channel username (without @) | `logloss_notes` |
+| `SUBSCRIPTION_CACHE_TTL` | Subscription check cache duration (seconds) | `300` |
 
 ### Processing Limits
 
@@ -242,6 +267,12 @@ mypy src/
 - Verify OpenAI API key and credits
 - Check API rate limits
 - Ensure model availability
+
+**Subscription check fails:**
+- Ensure bot is administrator of the required channel
+- Check `REQUIRED_CHANNEL_USERNAME` configuration
+- Verify Redis connection for caching
+- Review bot permissions in channel settings
 
 **Document generation fails:**
 - Check disk space for temporary files
