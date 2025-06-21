@@ -30,12 +30,17 @@ class VideoSummarizer:
         # Summarization prompts
         self.system_prompt = """You are an expert video content summarizer. Your task is to analyze YouTube video content and create comprehensive, well-structured summaries.
 
-IMPORTANT: Always respond in the SAME LANGUAGE as the video's transcript and title. If the video is in Russian, respond in Russian. If in English, respond in English. Match the language of the source content.
+IMPORTANT LANGUAGE INSTRUCTIONS:
+1. First priority: Always respond in the USER'S PREFERRED LANGUAGE as specified in the request
+2. If user prefers Russian - respond in Russian regardless of video language
+3. If user prefers English - respond in English regardless of video language  
+4. If no user language preference is specified, match the video's transcript language
 
 You will receive:
 1. Video metadata (title, description, duration, etc.)
-2. Complete transcript with timestamps
+2. Complete transcript with timestamps  
 3. Key video frames (if available)
+4. User's preferred language setting
 
 Create a summary that includes:
 - Executive Summary (2-3 sentences)
@@ -46,9 +51,9 @@ Create a summary that includes:
 
 Format your response as structured text that's easy to read and professionally formatted.
 
-Remember: ALWAYS use the same language as the source video content!"""
+Remember: ALWAYS prioritize the user's language preference over the video's original language!"""
 
-        self.user_prompt_template = """Please summarize this YouTube video in the SAME LANGUAGE as the video content:
+        self.user_prompt_template = """Please summarize this YouTube video in the USER'S PREFERRED LANGUAGE: {user_language}
 
 **Video Information:**
 - Title: {title}
@@ -57,6 +62,7 @@ Remember: ALWAYS use the same language as the source video content!"""
 - Upload Date: {upload_date}
 - Description: {description}
 - Transcript Language: {transcript_language}
+- USER'S PREFERRED LANGUAGE: {user_language}
 
 **Video Transcript:**
 {transcript_text}
@@ -64,7 +70,7 @@ Remember: ALWAYS use the same language as the source video content!"""
 **Frame Analysis:**
 {frame_analysis}
 
-IMPORTANT: Generate the summary in {transcript_language}. Use the same language as the transcript and title above. Please provide a comprehensive summary following the format specified in the system prompt."""
+CRITICAL: Generate the summary in {user_language}. This is the user's preferred language setting. Even if the video is in {transcript_language}, create the summary in {user_language} as requested by the user. Please provide a comprehensive summary following the format specified in the system prompt."""
 
     async def summarize_video(self, video_data: Dict) -> Dict:
         """
@@ -159,6 +165,10 @@ IMPORTANT: Generate the summary in {transcript_language}. Use the same language 
             }
             transcript_language = language_map.get(transcripts.get('language_code', ''), transcripts.get('language_code', 'Unknown'))
         
+        # Get user's preferred language from settings
+        user_language_code = settings.language
+        user_language = 'Russian' if user_language_code == 'ru' else 'English'
+        
         return self.user_prompt_template.format(
             title=video_info.get('title', 'Unknown Title'),
             duration_formatted=duration_formatted,
@@ -167,7 +177,8 @@ IMPORTANT: Generate the summary in {transcript_language}. Use the same language 
             description=description,
             transcript_text=transcript_text,
             frame_analysis=frame_analysis,
-            transcript_language=transcript_language
+            transcript_language=transcript_language,
+            user_language=user_language
         )
     
     def _format_transcript(self, transcript_segments: List[Dict]) -> str:
@@ -235,7 +246,7 @@ IMPORTANT: Generate the summary in {transcript_language}. Use the same language 
                 
                 # Executive Summary / Исполнительное резюме
                 if any(header in line_lower for header in [
-                    'executive summary', 'summary', 'исполнительное резюме', 'резюме', 'краткое содержание'
+                    'executive summary', 'summary', 'исполнительное резюме', 'резюме', 'краткое содержание', 'краткое изложение', 'основная мысль'
                 ]):
                     if current_section and current_content:
                         sections[current_section] = self._join_section_content(current_section, current_content)
@@ -245,7 +256,7 @@ IMPORTANT: Generate the summary in {transcript_language}. Use the same language 
                 
                 # Key Points / Ключевые моменты
                 elif any(header in line_lower for header in [
-                    'key points', 'main points', 'highlights', 'ключевые моменты', 'основные моменты', 'главные точки'
+                    'key points', 'main points', 'highlights', 'ключевые моменты', 'основные моменты', 'главные точки', 'ключевые пункты', 'важные моменты'
                 ]):
                     if current_section and current_content:
                         sections[current_section] = self._join_section_content(current_section, current_content)
@@ -255,7 +266,7 @@ IMPORTANT: Generate the summary in {transcript_language}. Use the same language 
                 
                 # Detailed Summary / Подробное резюме
                 elif any(header in line_lower for header in [
-                    'detailed summary', 'detailed', 'overview', 'подробное резюме', 'подробное содержание', 'детальное резюме'
+                    'detailed summary', 'detailed', 'overview', 'подробное резюме', 'подробное содержание', 'детальное резюме', 'полное изложение', 'подробное изложение'
                 ]):
                     if current_section and current_content:
                         sections[current_section] = self._join_section_content(current_section, current_content)
@@ -265,7 +276,7 @@ IMPORTANT: Generate the summary in {transcript_language}. Use the same language 
                 
                 # Timestamps / Временные метки
                 elif any(header in line_lower for header in [
-                    'timestamp', 'time', 'segments', 'временные метки', 'важные временные метки', 'временная разметка'
+                    'timestamp', 'time', 'segments', 'временные метки', 'важные временные метки', 'временная разметка', 'временные отрезки', 'метки времени'
                 ]):
                     if current_section and current_content:
                         sections[current_section] = self._join_section_content(current_section, current_content)
@@ -275,7 +286,7 @@ IMPORTANT: Generate the summary in {transcript_language}. Use the same language 
                 
                 # Takeaways / Действия/Выводы
                 elif any(header in line_lower for header in [
-                    'takeaway', 'action', 'conclusion', 'действия', 'выводы', 'заключение', 'рекомендации'
+                    'takeaway', 'action', 'conclusion', 'действия', 'выводы', 'заключение', 'рекомендации', 'итоги', 'что делать'
                 ]):
                     if current_section and current_content:
                         sections[current_section] = self._join_section_content(current_section, current_content)
