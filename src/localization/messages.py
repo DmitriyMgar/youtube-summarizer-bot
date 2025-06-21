@@ -28,6 +28,7 @@ MESSAGES = {
 /help - Получить подробную справку
 /summarize \\[ссылка YouTube\\] - Создать изложение видео
 /raw\\_subtitles \\[ссылка YouTube\\] - Извлечь субтитры без ИИ обработки
+/corrected\\_subtitles \\[ссылка YouTube\\] - Извлечь и исправить субтитры с помощью ИИ
 /status - Проверить статус обработки
 /formats - Посмотреть доступные форматы
 
@@ -229,6 +230,7 @@ I can help you summarize YouTube videos using AI. Just send me a YouTube URL and
 /help - Get detailed help
 /summarize \\[YouTube URL\\] - Summarize a video
 /raw\\_subtitles \\[YouTube URL\\] - Extract subtitles without AI processing
+/corrected\\_subtitles \\[YouTube URL\\] - Extract and improve subtitles with AI
 /status - Check processing status
 /formats - See available output formats
 

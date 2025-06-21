@@ -412,7 +412,7 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
                 "duration": transcript_data["duration"],
                 "summary": structured_summary,
                 "timestamp": datetime.now().isoformat(),
-                "model_used": self.model_name,
+                "model_used": settings.openai_model,
                 "language": transcript_data.get("language", "auto")
             }
             
@@ -517,7 +517,7 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
         """Отправка запроса к OpenAI для коррекции"""
         try:
             response = await self.client.chat.completions.create(
-                model=self.model_name,
+                model=settings.openai_model,
                 messages=[
                     {
                         "role": "system", 

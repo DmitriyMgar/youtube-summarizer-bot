@@ -12,6 +12,7 @@ from typing import List
 from telegram import Update, BotCommand
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from telegram.constants import ParseMode, ChatAction
+from telegram.error import BadRequest
 
 from config.settings import get_settings
 from utils.validators import is_valid_youtube_url, extract_video_id
@@ -25,6 +26,11 @@ from analytics.decorators import log_user_activity
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+def escape_markdown(text: str) -> str:
+    """Escape special Markdown characters in text."""
+    # Characters that need escaping in Telegram MarkdownV2
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 class BotHandlers:
     """Collection of Telegram bot command and message handlers."""
@@ -375,13 +381,18 @@ class BotHandlers:
             
             # Отправляем файл
             with open(temp_file_path, 'rb') as file:
+                # Экранируем специальные символы в названиях для Markdown
+                safe_title = escape_markdown(subtitle_data['title'])
+                safe_channel = escape_markdown(subtitle_data['channel'])
+                safe_language = escape_markdown(subtitle_data['language'])
+                
                 await update.message.reply_document(
                     document=file,
                     filename=filename,
                     caption=f"📝 **Субтитры извлечены**\n\n"
-                           f"🎥 {subtitle_data['title']}\n"
-                           f"📺 {subtitle_data['channel']}\n"
-                           f"🗣 {subtitle_data['language']} ({'🤖 Автогенерированные' if subtitle_data['auto_generated'] else '👤 Ручные'})\n"
+                           f"🎥 {safe_title}\n"
+                           f"📺 {safe_channel}\n"
+                           f"🗣 {safe_language} ({'🤖 Автогенерированные' if subtitle_data['auto_generated'] else '👤 Ручные'})\n"
                            f"📊 Сегментов: {subtitle_data['subtitle_count']}",
                     parse_mode=ParseMode.MARKDOWN
                 )
@@ -426,8 +437,10 @@ class BotHandlers:
                 )
                 logger.error(f"File creation/send error for video {video_url}: {str(e)}")
             else:
+                # Экранируем специальные символы в тексте ошибки
+                safe_error = escape_markdown(str(e))
                 await update.message.reply_text(
-                    get_message("raw_subtitles_error", error=str(e)),
+                    get_message("raw_subtitles_error", error=safe_error),
                     parse_mode=ParseMode.MARKDOWN
                 )
                 logger.error(f"Unexpected error in raw_subtitles command: {str(e)}", exc_info=True)
@@ -524,13 +537,18 @@ class BotHandlers:
                 
                 # Отправляем файл
                 with open(temp_file_path, 'rb') as file:
+                    # Экранируем специальные символы в названиях для Markdown
+                    safe_title = escape_markdown(corrected_data['title'])
+                    safe_channel = escape_markdown(corrected_data['channel'])
+                    safe_language = escape_markdown(corrected_data['language'])
+                    
                     await update.message.reply_document(
                         document=file,
                         filename=filename,
                         caption=f"📝 **Исправленные субтитры**\n\n"
-                               f"🎥 {corrected_data['title']}\n"
-                               f"📺 {corrected_data['channel']}\n"
-                               f"🗣 {corrected_data['language']} ({'🤖 Автогенерированные' if corrected_data['auto_generated'] else '👤 Ручные'})\n"
+                               f"🎥 {safe_title}\n"
+                               f"📺 {safe_channel}\n"
+                               f"🗣 {safe_language} ({'🤖 Автогенерированные' if corrected_data['auto_generated'] else '👤 Ручные'})\n"
                                f"✨ Обработано ИИ для улучшения читаемости\n"
                                f"📊 Сегментов: {len(corrected_data['subtitles'])}",
                         parse_mode=ParseMode.MARKDOWN
@@ -576,8 +594,10 @@ class BotHandlers:
                     )
                     logger.error(f"File creation/send error for video {video_url}: {str(e)}")
                 else:
+                    # Экранируем специальные символы в тексте ошибки
+                    safe_error = escape_markdown(str(e))
                     await update.message.reply_text(
-                        get_message("corrected_subtitles_error", error=str(e)),
+                        get_message("corrected_subtitles_error", error=safe_error),
                         parse_mode=ParseMode.MARKDOWN
                     )
                     logger.error(f"Unexpected error in corrected_subtitles command: {str(e)}", exc_info=True)
