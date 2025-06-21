@@ -14,8 +14,10 @@ from pathlib import Path
 import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import JSONFormatter
+from youtube_transcript_api import NoTranscriptFound
 
 from config.settings import get_settings
+from utils.validators import extract_video_id
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -25,6 +27,10 @@ class YouTubeProcessor:
     """Process YouTube videos to extract subtitles and metadata."""
     
     def __init__(self):
+        # Check for proxy settings in environment
+        import os
+        proxy = os.environ.get('HTTP_PROXY') or os.environ.get('http_proxy')
+        
         self.ydl_opts = {
             'quiet': not settings.debug,
             'no_warnings': not settings.debug,
@@ -34,7 +40,37 @@ class YouTubeProcessor:
             'writeautomaticsub': True,
             'subtitleslangs': ['en', 'en-US', 'en-GB', 'ru'],  # Added Russian language support
             'skip_download': True,  # Only extract info by default
+            # Network and retry settings for better stability
+            'socket_timeout': 30,  # Increase socket timeout
+            'retries': 5,  # Number of retries for failed downloads
+            'fragment_retries': 5,  # Number of retries for failed fragments
+            'extractor_retries': 3,  # Number of retries for extractor errors
+            'file_access_retries': 3,  # Number of retries for file access errors
+            # User agent to avoid blocking
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            },
+            # Additional stability options
+            'nocheckcertificate': True,  # Skip SSL certificate verification if needed
+            'prefer_insecure': False,  # Prefer secure connections
+            'cachedir': False,  # Disable caching to avoid issues
+            # YouTube specific options
+            'youtube_include_dash_manifest': False,  # Skip DASH manifest for faster extraction
+            'youtube_skip_dash_manifest': True,  # Skip DASH manifest
+            # Error handling
+            'ignoreerrors': False,  # Don't ignore errors, we want to handle them
+            'abort_on_error': False,  # Don't abort on first error
         }
+        
+        # Add proxy if available
+        if proxy:
+            self.ydl_opts['proxy'] = proxy
+            logger.info(f"Using proxy: {proxy}")
+        
+        # Add alternative DNS servers for better connectivity
+        self.ydl_opts.update({
+            'source_address': '0.0.0.0',  # Bind to all interfaces
+        })
         
         self.transcript_api = YouTubeTranscriptApi()
     
@@ -81,10 +117,67 @@ class YouTubeProcessor:
     
     def _extract_video_info_sync(self, video_url: str) -> Dict:
         """Synchronous video info extraction for executor."""
-        with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-            # Extract info without downloading - Context7 pattern
-            info = ydl.extract_info(video_url, download=False)
-            return ydl.sanitize_info(info)
+        # Try with different configurations if first attempt fails
+        configs_to_try = [
+            self.ydl_opts,  # Default config
+            {**self.ydl_opts, 'socket_timeout': 60, 'retries': 10},  # Extended timeouts
+            {**self.ydl_opts, 'nocheckcertificate': True, 'prefer_insecure': True},  # Relaxed security
+            # Alternative User-Agent
+            {**self.ydl_opts, 'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }},
+            # Mobile User-Agent
+            {**self.ydl_opts, 'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+            }},
+            # Minimal config with basic options only
+            {
+                'quiet': True,
+                'no_warnings': True,
+                'skip_download': True,
+                'socket_timeout': 30,
+                'retries': 3,
+            }
+        ]
+        
+        last_error = None
+        for i, config in enumerate(configs_to_try):
+            try:
+                logger.info(f"Attempting video info extraction (attempt {i+1}/{len(configs_to_try)}) for URL: {video_url}")
+                
+                # Add debug logging for configuration
+                if settings.debug:
+                    logger.debug(f"Using config: socket_timeout={config.get('socket_timeout')}, retries={config.get('retries')}")
+                
+                with yt_dlp.YoutubeDL(config) as ydl:
+                    # Extract info without downloading - Context7 pattern
+                    logger.info("Starting yt-dlp extraction...")
+                    info = ydl.extract_info(video_url, download=False)
+                    logger.info(f"Successfully extracted info for video: {info.get('title', 'Unknown')}")
+                    return ydl.sanitize_info(info)
+                    
+            except Exception as e:
+                last_error = e
+                error_type = type(e).__name__
+                logger.warning(f"Attempt {i+1} failed with {error_type}: {str(e)[:200]}...")
+                
+                # Special handling for specific error types
+                if "Failed to extract any player response" in str(e):
+                    logger.warning("YouTube player response extraction failed - this may be a temporary YouTube issue")
+                elif "Read timed out" in str(e):
+                    logger.warning("Network timeout occurred - retrying with extended timeout")
+                elif "Connection broken" in str(e):
+                    logger.warning("Network connection issue - retrying")
+                
+                if i < len(configs_to_try) - 1:
+                    import time
+                    wait_time = 2 * (i + 1)  # Exponential backoff
+                    logger.info(f"Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+                continue
+        
+        # If all attempts failed, raise the last error
+        raise last_error
     
     async def get_video_transcripts(self, video_id: str) -> Dict:
         """
@@ -371,4 +464,213 @@ class YouTubeProcessor:
                 'processing_status': 'failed',
                 'error': str(e),
                 'timestamp': asyncio.get_event_loop().time()
-            } 
+            }
+    
+    async def extract_raw_subtitles(self, video_url: str) -> dict:
+        """
+        Извлечение оригинальных субтитров YouTube видео без обработки ИИ
+        
+        Args:
+            video_url (str): URL YouTube видео
+            
+        Returns:
+            dict: Структурированные данные субтитров
+            
+        Raises:
+            Exception: Если субтитры недоступны или видео недоступно
+        """
+        try:
+            # Получаем video_id через существующий валидатор
+            video_id = extract_video_id(video_url)
+            if not video_id:
+                raise ValueError("Invalid YouTube URL")
+                
+            # Получаем метаданные видео
+            video_info = await self.get_video_info(video_url)
+            
+            # Попробуем извлечь субтитры через youtube-transcript-api
+            subtitle_data = None
+            language = None
+            language_code = None
+            auto_generated = True
+            
+            try:
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                
+                # Приоритет: ручные субтитры > автогенерированные
+                transcript = None
+                
+                try:
+                    # Попробуем найти ручные субтитры на русском или английском
+                    transcript = transcript_list.find_manually_created_transcript(['ru', 'en'])
+                    auto_generated = False
+                    logger.info(f"Found manual transcript for {video_id}")
+                except NoTranscriptFound:
+                    try:
+                        # Если ручных нет, используем автогенерированные
+                        transcript = transcript_list.find_generated_transcript(['ru', 'en'])
+                        auto_generated = True
+                        logger.info(f"Found auto-generated transcript for {video_id}")
+                    except NoTranscriptFound:
+                        raise Exception(f"No subtitles available via transcript API for video {video_id}")
+                
+                # Получаем текст субтитров
+                subtitle_data = transcript.fetch()
+                language = transcript.language
+                language_code = transcript.language_code
+                logger.info(f"Successfully fetched {len(subtitle_data)} subtitle segments for {video_id}")
+                
+            except Exception as transcript_error:
+                logger.warning(f"youtube-transcript-api failed: {transcript_error}")
+                logger.info("Trying fallback method with yt-dlp...")
+                
+                # Fallback: используем yt-dlp для извлечения субтитров
+                try:
+                    subtitle_data, language, language_code, auto_generated = await self._extract_subtitles_with_ytdlp(video_url, video_id)
+                    logger.info(f"Successfully extracted subtitles via yt-dlp fallback")
+                except Exception as ytdlp_error:
+                    logger.error(f"Both methods failed. transcript-api: {transcript_error}, yt-dlp: {ytdlp_error}")
+                    raise Exception(f"No subtitles available for video {video_id}. Tried both youtube-transcript-api and yt-dlp.")
+            
+            return {
+                "video_id": video_id,
+                "title": video_info.get("title", "Unknown Title"),
+                "duration": video_info.get("duration", 0),
+                "channel": video_info.get("uploader", "Unknown Channel"),
+                "subtitles": subtitle_data,
+                "language": language,
+                "language_code": language_code,
+                "auto_generated": auto_generated,
+                "subtitle_count": len(subtitle_data) if subtitle_data else 0
+            }
+            
+        except Exception as e:
+            logger.error(f"Error extracting raw subtitles for {video_url}: {str(e)}")
+            raise 
+    
+    async def _extract_subtitles_with_ytdlp(self, video_url: str, video_id: str) -> tuple:
+        """
+        Fallback метод для извлечения субтитров через yt-dlp
+        
+        Returns:
+            tuple: (subtitle_data, language, language_code, auto_generated)
+        """
+        try:
+            # Конфигурация для извлечения субтитров
+            subtitle_opts = {
+                **self.ydl_opts,
+                'writesubtitles': True,
+                'writeautomaticsub': True,
+                'skip_download': True,
+                'subtitleslangs': ['ru', 'en', 'en-US', 'en-GB'],
+            }
+            
+            # Запускаем в executor
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self._extract_subtitles_sync,
+                video_url,
+                subtitle_opts
+            )
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"yt-dlp subtitle extraction failed: {e}")
+            raise
+    
+    def _extract_subtitles_sync(self, video_url: str, opts: dict) -> tuple:
+        """Синхронное извлечение субтитров через yt-dlp"""
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(video_url, download=False)
+                
+                # Проверяем доступные субтитры
+                subtitles = info.get('subtitles', {})
+                automatic_captions = info.get('automatic_captions', {})
+                
+                # Приоритет: ручные субтитры > автогенерированные
+                subtitle_data = None
+                language = None
+                language_code = None
+                auto_generated = True
+                
+                # Попробуем найти ручные субтитры
+                for lang in ['ru', 'en', 'en-US', 'en-GB']:
+                    if lang in subtitles and subtitles[lang]:
+                        # Берем первый доступный формат субтитров
+                        subtitle_info = subtitles[lang][0]
+                        subtitle_data = self._download_subtitle_content(subtitle_info)
+                        language = lang
+                        language_code = lang
+                        auto_generated = False
+                        logger.info(f"Found manual subtitles in {lang}")
+                        break
+                
+                # Если ручных нет, попробуем автогенерированные
+                if not subtitle_data:
+                    for lang in ['ru', 'en', 'en-US', 'en-GB']:
+                        if lang in automatic_captions and automatic_captions[lang]:
+                            subtitle_info = automatic_captions[lang][0]
+                            subtitle_data = self._download_subtitle_content(subtitle_info)
+                            language = lang
+                            language_code = lang
+                            auto_generated = True
+                            logger.info(f"Found auto-generated subtitles in {lang}")
+                            break
+                
+                if not subtitle_data:
+                    raise Exception("No subtitles found in yt-dlp extraction")
+                
+                return subtitle_data, language, language_code, auto_generated
+                
+        except Exception as e:
+            logger.error(f"Error in yt-dlp subtitle extraction: {e}")
+            raise
+    
+    def _download_subtitle_content(self, subtitle_info: dict) -> list:
+        """Загружает содержимое субтитров и конвертирует в нужный формат"""
+        try:
+            import requests
+            import json
+            
+            url = subtitle_info.get('url')
+            if not url:
+                raise Exception("No subtitle URL found")
+            
+            # Загружаем субтитры
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            
+            # Парсим JSON субтитры (YouTube API format)
+            subtitle_data = []
+            
+            if subtitle_info.get('ext') == 'json3':
+                # JSON3 формат YouTube
+                data = json.loads(response.text)
+                events = data.get('events', [])
+                
+                for event in events:
+                    if 'segs' in event:
+                        text_parts = []
+                        for seg in event['segs']:
+                            if 'utf8' in seg:
+                                text_parts.append(seg['utf8'])
+                        
+                        if text_parts:
+                            subtitle_data.append({
+                                'text': ''.join(text_parts).strip(),
+                                'start': event.get('tStartMs', 0) / 1000.0,
+                                'duration': event.get('dDurationMs', 0) / 1000.0
+                            })
+            else:
+                # Другие форматы - попробуем простой парсинг
+                logger.warning(f"Unsupported subtitle format: {subtitle_info.get('ext')}")
+                raise Exception(f"Unsupported subtitle format: {subtitle_info.get('ext')}")
+            
+            return subtitle_data
+            
+        except Exception as e:
+            logger.error(f"Error downloading subtitle content: {e}")
+            raise

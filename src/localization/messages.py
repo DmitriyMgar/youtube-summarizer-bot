@@ -26,7 +26,8 @@ MESSAGES = {
 **Команды:**
 /start - Показать это приветственное сообщение
 /help - Получить подробную справку
-/summarize <ссылка YouTube> - Создать изложение видео
+/summarize \\[ссылка YouTube\\] - Создать изложение видео
+/raw\\_subtitles \\[ссылка YouTube\\] - Извлечь субтитры без ИИ обработки
 /status - Проверить статус обработки
 /formats - Посмотреть доступные форматы
 
@@ -51,6 +52,8 @@ MESSAGES = {
 
 <b>Команды:</b>
 • <code>/summarize [ссылка]</code> - Обработать определенное видео
+• <code>/raw_subtitles [ссылка]</code> - Извлечь субтитры без ИИ обработки
+• <code>/corrected_subtitles [ссылка]</code> - Извлечь и исправить субтитры с помощью ИИ
 • <code>/status</code> - Проверить текущую очередь обработки
 • <code>/formats</code> - Посмотреть доступные форматы документов
 • <code>/cancel</code> - Отменить текущий запрос
@@ -157,10 +160,27 @@ MESSAGES = {
             "start": "Запустить бота и увидеть приветственное сообщение",
             "help": "Получить подробную справку и инструкции по использованию",
             "summarize": "Создать изложение видео YouTube",
+            "raw_subtitles": "Извлечь субтитры без ИИ обработки",
+            "corrected_subtitles": "Извлечь и исправить субтитры с помощью ИИ",
             "status": "Проверить статус обработки",
             "formats": "Посмотреть доступные форматы вывода",
             "cancel": "Отменить текущий запрос на обработку"
-        }
+        },
+        
+        # Новые сообщения для /raw_subtitles
+        "raw_subtitles_usage": "📝 **Использование команды:**\n`/raw_subtitles <YouTube URL>`\n\n**Пример:**\n`/raw_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`",
+        "raw_subtitles_processing": "⏳ Извлекаю субтитры из видео...",
+        "raw_subtitles_not_found": "❌ **Субтитры недоступны**\n\nДля этого видео нет субтитров. Попробуйте использовать `/summarize` для обработки аудио.",
+        "raw_subtitles_error": "❌ **Ошибка извлечения субтитров**\n\n{error}\n\nПопробуйте позже или используйте другое видео.",
+        "raw_subtitles_file_error": "❌ **Ошибка создания файла**\n\nНе удалось создать файл с субтитрами. Попробуйте снова.",
+        
+        # Новые сообщения для /corrected_subtitles
+        "corrected_subtitles_usage": "✨ **Использование команды:**\n`/corrected_subtitles <YouTube URL>`\n\n**Пример:**\n`/corrected_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`\n\n*Команда извлекает субтитры и улучшает их читаемость с помощью ИИ*",
+        "corrected_subtitles_processing": "⏳ Извлекаю субтитры и улучшаю их с помощью ИИ...\n\n*Это может занять 1-2 минуты*",
+        "corrected_subtitles_error": "❌ **Ошибка обработки субтитров**\n\n{error}\n\nПопробуйте позже или используйте другое видео.",
+        "corrected_subtitles_file_error": "❌ **Ошибка создания файла**\n\nНе удалось создать файл с исправленными субтитрами. Попробуйте снова.",
+        
+        "video_unavailable": "❌ **Видео недоступно**\n\nВидео может быть приватным, удаленным или недоступным в вашем регионе.",
     },
     
     # English messages (fallback)
@@ -179,7 +199,8 @@ I can help you summarize YouTube videos using AI. Just send me a YouTube URL and
 **Commands:**
 /start - Show this welcome message
 /help - Get detailed help
-/summarize <YouTube URL> - Summarize a video
+/summarize \\[YouTube URL\\] - Summarize a video
+/raw\\_subtitles \\[YouTube URL\\] - Extract subtitles without AI processing
 /status - Check processing status
 /formats - See available output formats
 
@@ -187,7 +208,21 @@ I can help you summarize YouTube videos using AI. Just send me a YouTube URL and
 
 Just send me a YouTube URL to get started! 🚀
         """,
-        # ... (keeping original English messages as fallback)
+        
+        # English versions for /raw_subtitles
+        "raw_subtitles_usage": "📝 **Command usage:**\n`/raw_subtitles <YouTube URL>`\n\n**Example:**\n`/raw_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`",
+        "raw_subtitles_processing": "⏳ Extracting subtitles from video...",
+        "raw_subtitles_not_found": "❌ **Subtitles unavailable**\n\nNo subtitles found for this video. Try using `/summarize` for audio processing.",
+        "raw_subtitles_error": "❌ **Subtitle extraction error**\n\n{error}\n\nTry again later or use another video.",
+        "raw_subtitles_file_error": "❌ **File creation error**\n\nFailed to create subtitle file. Please try again.",
+        
+        # English versions for /corrected_subtitles
+        "corrected_subtitles_usage": "✨ **Command usage:**\n`/corrected_subtitles <YouTube URL>`\n\n**Example:**\n`/corrected_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`\n\n*This command extracts subtitles and improves their readability using AI*",
+        "corrected_subtitles_processing": "⏳ Extracting subtitles and improving them with AI...\n\n*This may take 1-2 minutes*",
+        "corrected_subtitles_error": "❌ **Subtitle processing error**\n\n{error}\n\nTry again later or use another video.",
+        "corrected_subtitles_file_error": "❌ **File creation error**\n\nFailed to create corrected subtitle file. Please try again.",
+        
+        "video_unavailable": "❌ **Video unavailable**\n\nVideo may be private, deleted, or unavailable in your region.",
     }
 }
 

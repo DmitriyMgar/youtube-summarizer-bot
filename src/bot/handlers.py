@@ -5,13 +5,17 @@ Based on python-telegram-bot Context7 documentation patterns
 
 import logging
 import re
+import asyncio
+import tempfile
+import os
 from typing import List
 from telegram import Update, BotCommand
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
-from telegram.constants import ParseMode
+from telegram.constants import ParseMode, ChatAction
 
 from config.settings import get_settings
 from utils.validators import is_valid_youtube_url, extract_video_id
+from utils.subtitle_formatter import SubtitleFormatter
 from processing_queue.manager import QueueManager
 from youtube.processor import YouTubeProcessor
 from localization import get_message, set_language
@@ -28,6 +32,14 @@ class BotHandlers:
         self.youtube_processor = youtube_processor
         # Set language from settings
         set_language(settings.language)
+        
+        # Инициализируем AI summarizer для работы с исправлением субтитров
+        from src.ai.summarizer import VideoSummarizer
+        self.summarizer = VideoSummarizer()
+    
+    def _is_authorized_user(self, user_id: int) -> bool:
+        """Проверяет авторизацию пользователя"""
+        return not settings.allowed_users_list or user_id in settings.allowed_users_list
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command - welcome message and bot introduction."""
@@ -216,6 +228,276 @@ class BotHandlers:
             await update.message.reply_text(
                 get_message("error_no_cancel")
             )
+    
+    async def raw_subtitles_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Обработчик команды /raw_subtitles для извлечения субтитров без ИИ обработки
+        """
+        try:
+            user_id = update.effective_user.id
+            message_text = update.message.text.strip()
+            
+            # Проверяем авторизацию пользователя
+            if not self._is_authorized_user(user_id):
+                await update.message.reply_text(
+                    get_message("access_denied"),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            # Извлекаем URL из команды
+            parts = message_text.split(maxsplit=1)
+            if len(parts) < 2:
+                await update.message.reply_text(
+                    get_message("raw_subtitles_usage"),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            video_url = parts[1].strip()
+            
+            # Валидация URL
+            if not is_valid_youtube_url(video_url):
+                await update.message.reply_text(
+                    get_message("invalid_youtube_url"),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            # Отправляем индикатор "печатает"
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id,
+                action=ChatAction.TYPING
+            )
+            
+            # Уведомляем о начале обработки
+            processing_message = await update.message.reply_text(
+                get_message("raw_subtitles_processing"),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            # Извлекаем субтитры
+            subtitle_data = await self.youtube_processor.extract_raw_subtitles(video_url)
+            
+            # Форматируем для файла
+            formatter = SubtitleFormatter()
+            file_content = formatter.format_for_file(subtitle_data)
+            
+            # Создаем временный файл
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as temp_file:
+                temp_file.write(file_content)
+                temp_file_path = temp_file.name
+            
+            # Удаляем сообщение о процессе
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=processing_message.message_id
+            )
+            
+            # Создаем имя файла на основе названия видео
+            safe_title = "".join(c for c in subtitle_data['title'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            safe_title = safe_title[:50]  # Ограничиваем длину
+            filename = f"{safe_title}_subtitles.txt"
+            
+            # Отправляем файл
+            with open(temp_file_path, 'rb') as file:
+                await update.message.reply_document(
+                    document=file,
+                    filename=filename,
+                    caption=f"📝 **Субтитры извлечены**\n\n"
+                           f"🎥 {subtitle_data['title']}\n"
+                           f"📺 {subtitle_data['channel']}\n"
+                           f"🗣 {subtitle_data['language']} ({'🤖 Автогенерированные' if subtitle_data['auto_generated'] else '👤 Ручные'})\n"
+                           f"📊 Сегментов: {subtitle_data['subtitle_count']}",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            
+            # Удаляем временный файл
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+            
+            # Логируем успешную обработку
+            logger.info(f"Raw subtitles file sent successfully for user {user_id}, video: {subtitle_data['video_id']}")
+            
+        except Exception as e:
+            # Удаляем сообщение о процессе если есть ошибка
+            try:
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=processing_message.message_id
+                )
+            except:
+                pass
+            
+            # Определяем тип ошибки и отправляем соответствующее сообщение
+            error_msg = str(e).lower()
+            if "no subtitles" in error_msg or "transcript" in error_msg:
+                await update.message.reply_text(
+                    get_message("raw_subtitles_not_found"),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                logger.warning(f"No subtitles available for URL: {video_url}")
+            elif "unavailable" in error_msg or "private" in error_msg:
+                await update.message.reply_text(
+                    get_message("video_unavailable"), 
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                logger.warning(f"Video unavailable: {video_url}")
+            elif "file" in error_msg or "document" in error_msg:
+                await update.message.reply_text(
+                    get_message("raw_subtitles_file_error"),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                logger.error(f"File creation/send error for video {video_url}: {str(e)}")
+            else:
+                await update.message.reply_text(
+                    get_message("raw_subtitles_error", error=str(e)),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                logger.error(f"Unexpected error in raw_subtitles command: {str(e)}", exc_info=True)
+
+    async def corrected_subtitles_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Обработчик команды /corrected_subtitles для извлечения и исправления субтитров
+        """
+        try:
+            user_id = update.effective_user.id
+            message_text = update.message.text.strip()
+            
+            # Проверяем авторизацию пользователя
+            if not self._is_authorized_user(user_id):
+                await update.message.reply_text(
+                    get_message("access_denied"),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            # Извлекаем URL из команды
+            parts = message_text.split(maxsplit=1)
+            if len(parts) < 2:
+                await update.message.reply_text(
+                    get_message("corrected_subtitles_usage"),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            video_url = parts[1].strip()
+            
+            # Валидация URL
+            if not is_valid_youtube_url(video_url):
+                await update.message.reply_text(
+                    get_message("invalid_youtube_url"),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            # Отправляем индикатор "печатает"
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id,
+                action=ChatAction.TYPING
+            )
+            
+            # Уведомляем о начале обработки
+            processing_message = await update.message.reply_text(
+                get_message("corrected_subtitles_processing"),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            try:
+                # Извлекаем сырые субтитры
+                subtitle_data = await self.youtube_processor.extract_raw_subtitles(video_url)
+                
+                # Исправляем субтитры с помощью ИИ
+                corrected_data = await self.summarizer.correct_transcript(subtitle_data)
+                
+                # Форматируем для файла
+                formatter = SubtitleFormatter()
+                file_content = formatter.format_for_file(corrected_data)
+                
+                # Создаем временный файл
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as temp_file:
+                    temp_file.write(file_content)
+                    temp_file_path = temp_file.name
+                
+                # Удаляем сообщение о процессе
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=processing_message.message_id
+                )
+                
+                # Создаем имя файла
+                safe_title = "".join(c for c in corrected_data['title'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                safe_title = safe_title[:50]
+                filename = f"{safe_title}_corrected_subtitles.txt"
+                
+                # Отправляем файл
+                with open(temp_file_path, 'rb') as file:
+                    await update.message.reply_document(
+                        document=file,
+                        filename=filename,
+                        caption=f"📝 **Исправленные субтитры**\n\n"
+                               f"🎥 {corrected_data['title']}\n"
+                               f"📺 {corrected_data['channel']}\n"
+                               f"🗣 {corrected_data['language']} ({'🤖 Автогенерированные' if corrected_data['auto_generated'] else '👤 Ручные'})\n"
+                               f"✨ Обработано ИИ для улучшения читаемости\n"
+                               f"📊 Сегментов: {len(corrected_data['subtitles'])}",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                
+                # Удаляем временный файл
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                
+                # Логируем успешную обработку
+                logger.info(f"Corrected subtitles file sent successfully for user {user_id}, video: {corrected_data['video_id']}")
+                
+            except Exception as e:
+                # Удаляем сообщение о процессе если есть ошибка
+                try:
+                    await context.bot.delete_message(
+                        chat_id=update.effective_chat.id,
+                        message_id=processing_message.message_id
+                    )
+                except:
+                    pass
+                
+                # Определяем тип ошибки и отправляем соответствующее сообщение
+                error_msg = str(e).lower()
+                if "no subtitles" in error_msg or "transcript" in error_msg:
+                    await update.message.reply_text(
+                        get_message("raw_subtitles_not_found"),
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    logger.warning(f"No subtitles available for URL: {video_url}")
+                elif "unavailable" in error_msg or "private" in error_msg:
+                    await update.message.reply_text(
+                        get_message("video_unavailable"), 
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    logger.warning(f"Video unavailable: {video_url}")
+                elif "file" in error_msg or "document" in error_msg:
+                    await update.message.reply_text(
+                        get_message("corrected_subtitles_file_error"),
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    logger.error(f"File creation/send error for video {video_url}: {str(e)}")
+                else:
+                    await update.message.reply_text(
+                        get_message("corrected_subtitles_error", error=str(e)),
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    logger.error(f"Unexpected error in corrected_subtitles command: {str(e)}", exc_info=True)
+            
+        except Exception as e:
+            logger.error(f"Critical error in corrected_subtitles command: {str(e)}", exc_info=True)
+            await update.message.reply_text(
+                get_message("general_error"),
+                parse_mode=ParseMode.MARKDOWN
+            )
 
 
 def get_command_handlers(queue_manager: QueueManager, youtube_processor: YouTubeProcessor) -> List:
@@ -229,6 +511,8 @@ def get_command_handlers(queue_manager: QueueManager, youtube_processor: YouTube
         CommandHandler("status", handlers.status_command),
         CommandHandler("formats", handlers.formats_command),
         CommandHandler("cancel", handlers.cancel_command),
+        CommandHandler("raw_subtitles", handlers.raw_subtitles_command),
+        CommandHandler("corrected_subtitles", handlers.corrected_subtitles_command),
         MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.Regex(r'(?:youtube\.com|youtu\.be)'),
             handlers.handle_youtube_url
@@ -250,7 +534,9 @@ def get_bot_commands() -> List[BotCommand]:
                 BotCommand("summarize", commands.get("summarize", "Создать изложение видео YouTube")),
                 BotCommand("status", commands.get("status", "Проверить статус обработки")),
                 BotCommand("formats", commands.get("formats", "Посмотреть доступные форматы")),
-                BotCommand("cancel", commands.get("cancel", "Отменить текущий запрос"))
+                BotCommand("cancel", commands.get("cancel", "Отменить текущий запрос")),
+                BotCommand("raw_subtitles", commands.get("raw_subtitles", "Извлечь субтитры без ИИ обработки")),
+                BotCommand("corrected_subtitles", commands.get("corrected_subtitles", "Извлечь и исправить субтитры"))
             ]
     except Exception as e:
         logger.warning(f"Error getting localized commands: {e}")
@@ -262,5 +548,7 @@ def get_bot_commands() -> List[BotCommand]:
         BotCommand("summarize", "Создать изложение видео YouTube"),
         BotCommand("status", "Проверить статус обработки"),
         BotCommand("formats", "Посмотреть доступные форматы вывода"),
-        BotCommand("cancel", "Отменить текущий запрос на обработку")
+        BotCommand("cancel", "Отменить текущий запрос на обработку"),
+        BotCommand("raw_subtitles", "Извлечь субтитры без ИИ обработки"),
+        BotCommand("corrected_subtitles", "Извлечь и исправить субтитры")
     ] 
