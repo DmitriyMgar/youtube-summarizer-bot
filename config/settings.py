@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     
     # Language Configuration
     language: str = Field('ru', env='LANGUAGE')
+    
+    # Channel Subscription Settings
+    required_channel_username: str = Field('logloss_notes', env='REQUIRED_CHANNEL_USERNAME')
+    subscription_check_enabled: bool = Field(True, env='SUBSCRIPTION_CHECK_ENABLED')
+    subscription_cache_ttl: int = Field(300, env='SUBSCRIPTION_CACHE_TTL')  # 5 minutes
 
     @property
     def supported_formats_list(self) -> List[str]:

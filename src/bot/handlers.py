@@ -16,6 +16,7 @@ from telegram.constants import ParseMode, ChatAction
 from config.settings import get_settings
 from utils.validators import is_valid_youtube_url, extract_video_id
 from utils.subtitle_formatter import SubtitleFormatter
+from utils.subscription_checker import get_subscription_checker
 from processing_queue.manager import QueueManager
 from youtube.processor import YouTubeProcessor
 from localization import get_message, set_language
@@ -30,6 +31,7 @@ class BotHandlers:
     def __init__(self, queue_manager: QueueManager, youtube_processor: YouTubeProcessor):
         self.queue_manager = queue_manager
         self.youtube_processor = youtube_processor
+        self.subscription_checker = None
         # Set language from settings
         set_language(settings.language)
         
@@ -37,13 +39,44 @@ class BotHandlers:
         from src.ai.summarizer import VideoSummarizer
         self.summarizer = VideoSummarizer()
     
+    async def initialize_subscription_checker(self):
+        """Инициализация проверки подписок."""
+        if settings.subscription_check_enabled:
+            self.subscription_checker = await get_subscription_checker(settings.telegram_bot_token)
+    
     def _is_authorized_user(self, user_id: int) -> bool:
         """Проверяет авторизацию пользователя"""
         return not settings.allowed_users_list or user_id in settings.allowed_users_list
     
+    async def _check_subscription_access(self, user_id: int) -> bool:
+        """Проверяет доступ пользователя на основе подписки на канал."""
+        if not settings.subscription_check_enabled or not self.subscription_checker:
+            return True
+        
+        try:
+            return await self.subscription_checker.is_user_subscribed(user_id)
+        except Exception as e:
+            logger.error(f"Error checking subscription for user {user_id}: {e}")
+            # В случае ошибки разрешаем доступ, чтобы не блокировать пользователей
+            return True
+    
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command - welcome message and bot introduction."""
         user = update.effective_user
+        
+        # Проверяем подписку на канал
+        if not await self._check_subscription_access(user.id):
+            subscription_message = get_message(
+                "subscription_required",
+                channel_username=settings.required_channel_username
+            )
+            await update.message.reply_text(
+                subscription_message,
+                parse_mode=ParseMode.MARKDOWN
+            )
+            logger.info(f"User {user.id} ({user.username}) denied access - not subscribed to channel")
+            return
+        
         welcome_message = get_message(
             "welcome_message",
             bot_name=settings.bot_name,
@@ -159,6 +192,19 @@ class BotHandlers:
         """Process a YouTube URL for summarization."""
         user = update.effective_user
         
+        # Проверяем подписку на канал
+        if not await self._check_subscription_access(user.id):
+            subscription_message = get_message(
+                "subscription_required",
+                channel_username=settings.required_channel_username
+            )
+            await update.message.reply_text(
+                subscription_message,
+                parse_mode=ParseMode.MARKDOWN
+            )
+            logger.warning(f"User {user.id} ({user.username}) denied access - not subscribed to channel")
+            return
+        
         # Security check - validate allowed users
         if settings.allowed_users_list and user.id not in settings.allowed_users_list:
             await update.message.reply_text(
@@ -237,10 +283,23 @@ class BotHandlers:
             user_id = update.effective_user.id
             message_text = update.message.text.strip()
             
+            # Проверяем подписку на канал
+            if not await self._check_subscription_access(user_id):
+                subscription_message = get_message(
+                    "subscription_required",
+                    channel_username=settings.required_channel_username
+                )
+                await update.message.reply_text(
+                    subscription_message,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                logger.warning(f"User {user_id} denied access to raw_subtitles - not subscribed to channel")
+                return
+            
             # Проверяем авторизацию пользователя
             if not self._is_authorized_user(user_id):
                 await update.message.reply_text(
-                    get_message("access_denied"),
+                    get_message("error_unauthorized"),
                     parse_mode=ParseMode.MARKDOWN
                 )
                 return
@@ -366,10 +425,23 @@ class BotHandlers:
             user_id = update.effective_user.id
             message_text = update.message.text.strip()
             
+            # Проверяем подписку на канал
+            if not await self._check_subscription_access(user_id):
+                subscription_message = get_message(
+                    "subscription_required",
+                    channel_username=settings.required_channel_username
+                )
+                await update.message.reply_text(
+                    subscription_message,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                logger.warning(f"User {user_id} denied access to corrected_subtitles - not subscribed to channel")
+                return
+            
             # Проверяем авторизацию пользователя
             if not self._is_authorized_user(user_id):
                 await update.message.reply_text(
-                    get_message("access_denied"),
+                    get_message("error_unauthorized"),
                     parse_mode=ParseMode.MARKDOWN
                 )
                 return
@@ -500,9 +572,12 @@ class BotHandlers:
             )
 
 
-def get_command_handlers(queue_manager: QueueManager, youtube_processor: YouTubeProcessor) -> List:
+async def get_command_handlers(queue_manager: QueueManager, youtube_processor: YouTubeProcessor) -> List:
     """Get list of command handlers for the bot."""
     handlers = BotHandlers(queue_manager, youtube_processor)
+    
+    # Инициализируем проверку подписок
+    await handlers.initialize_subscription_checker()
     
     return [
         CommandHandler("start", handlers.start_command),
