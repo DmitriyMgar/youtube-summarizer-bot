@@ -66,9 +66,11 @@ class BotHandlers:
         
         # Проверяем подписку на канал
         if not await self._check_subscription_access(user.id):
+            # Экранируем подчеркивания для Markdown
+            escaped_username = settings.required_channel_username.replace('_', '\\_')
             subscription_message = get_message(
                 "subscription_required",
-                channel_username=settings.required_channel_username
+                channel_username=escaped_username
             )
             await update.message.reply_text(
                 subscription_message,
@@ -194,9 +196,11 @@ class BotHandlers:
         
         # Проверяем подписку на канал
         if not await self._check_subscription_access(user.id):
+            # Экранируем подчеркивания для Markdown
+            escaped_username = settings.required_channel_username.replace('_', '\\_')
             subscription_message = get_message(
                 "subscription_required",
-                channel_username=settings.required_channel_username
+                channel_username=escaped_username
             )
             await update.message.reply_text(
                 subscription_message,
@@ -285,9 +289,11 @@ class BotHandlers:
             
             # Проверяем подписку на канал
             if not await self._check_subscription_access(user_id):
+                # Экранируем подчеркивания для Markdown
+                escaped_username = settings.required_channel_username.replace('_', '\\_')
                 subscription_message = get_message(
                     "subscription_required",
-                    channel_username=settings.required_channel_username
+                    channel_username=escaped_username
                 )
                 await update.message.reply_text(
                     subscription_message,
@@ -427,9 +433,11 @@ class BotHandlers:
             
             # Проверяем подписку на канал
             if not await self._check_subscription_access(user_id):
+                # Экранируем подчеркивания для Markdown
+                escaped_username = settings.required_channel_username.replace('_', '\\_')
                 subscription_message = get_message(
                     "subscription_required",
-                    channel_username=settings.required_channel_username
+                    channel_username=escaped_username
                 )
                 await update.message.reply_text(
                     subscription_message,
