@@ -16,6 +16,7 @@ fpdf2>=2.7.9
 asyncio-mqtt>=0.16.1
 celery>=5.3.6
 redis>=5.0.4
+aiohttp>=3.9.0
 
 # Environment & Configuration
 python-dotenv>=1.0.1

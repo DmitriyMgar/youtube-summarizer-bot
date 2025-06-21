@@ -52,7 +52,7 @@ class YouTubeSummarizerBot:
             self.application = ApplicationBuilder().token(settings.telegram_bot_token).build()
             
             # Add command handlers
-            handlers = get_command_handlers(self.queue_manager, self.youtube_processor)
+            handlers = await get_command_handlers(self.queue_manager, self.youtube_processor)
             for handler in handlers:
                 self.application.add_handler(handler)
             
