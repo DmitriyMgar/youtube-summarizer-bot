@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 
 from .logger import get_activity_logger
 from .models import UserActivity
-from ..utils.validators import is_valid_youtube_url, extract_video_id
+from utils.validators import is_valid_youtube_url, extract_video_id
 
 
 def log_user_activity(command_name: str = None):
