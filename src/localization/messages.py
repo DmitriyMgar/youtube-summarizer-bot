@@ -169,14 +169,14 @@ MESSAGES = {
         },
         
         # Новые сообщения для /raw_subtitles
-        "raw_subtitles_usage": "📝 **Использование команды:**\n`/raw_subtitles <YouTube URL>`\n\n**Пример:**\n`/raw_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`",
+        "raw_subtitles_usage": "📝 **Использование команды:**\n`/raw_subtitles <YouTube URL> [format:формат]`\n\n**Примеры:**\n`/raw_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`\n`/raw_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ format:docx`\n\n**Доступные форматы:** txt, docx, pdf",
         "raw_subtitles_processing": "⏳ Извлекаю субтитры из видео...",
         "raw_subtitles_not_found": "❌ **Субтитры недоступны**\n\nДля этого видео нет субтитров. Попробуйте использовать `/summarize` для обработки аудио.",
         "raw_subtitles_error": "❌ **Ошибка извлечения субтитров**\n\n{error}\n\nПопробуйте позже или используйте другое видео.",
         "raw_subtitles_file_error": "❌ **Ошибка создания файла**\n\nНе удалось создать файл с субтитрами. Попробуйте снова.",
         
         # Новые сообщения для /corrected_subtitles
-        "corrected_subtitles_usage": "✨ **Использование команды:**\n`/corrected_subtitles <YouTube URL>`\n\n**Пример:**\n`/corrected_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`\n\n*Команда извлекает субтитры и улучшает их читаемость с помощью ИИ*",
+        "corrected_subtitles_usage": "✨ **Использование команды:**\n`/corrected_subtitles <YouTube URL> [format:формат]`\n\n**Примеры:**\n`/corrected_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`\n`/corrected_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ format:pdf`\n\n**Доступные форматы:** txt, docx, pdf\n*Команда извлекает субтитры и улучшает их читаемость с помощью ИИ*",
         "corrected_subtitles_processing": "⏳ Извлекаю субтитры и улучшаю их с помощью ИИ...\n\n*Это может занять 1-2 минуты*",
         "corrected_subtitles_error": "❌ **Ошибка обработки субтитров**\n\n{error}\n\nПопробуйте позже или используйте другое видео.",
         "corrected_subtitles_file_error": "❌ **Ошибка создания файла**\n\nНе удалось создать файл с исправленными субтитрами. Попробуйте снова.",
@@ -240,14 +240,14 @@ Just send me a YouTube URL to get started! 🚀
         """,
         
         # English versions for /raw_subtitles
-        "raw_subtitles_usage": "📝 **Command usage:**\n`/raw_subtitles <YouTube URL>`\n\n**Example:**\n`/raw_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`",
+        "raw_subtitles_usage": "📝 **Command usage:**\n`/raw_subtitles <YouTube URL> [format:format]`\n\n**Examples:**\n`/raw_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`\n`/raw_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ format:docx`\n\n**Available formats:** txt, docx, pdf",
         "raw_subtitles_processing": "⏳ Extracting subtitles from video...",
         "raw_subtitles_not_found": "❌ **Subtitles unavailable**\n\nNo subtitles found for this video. Try using `/summarize` for audio processing.",
         "raw_subtitles_error": "❌ **Subtitle extraction error**\n\n{error}\n\nTry again later or use another video.",
         "raw_subtitles_file_error": "❌ **File creation error**\n\nFailed to create subtitle file. Please try again.",
         
         # English versions for /corrected_subtitles
-        "corrected_subtitles_usage": "✨ **Command usage:**\n`/corrected_subtitles <YouTube URL>`\n\n**Example:**\n`/corrected_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`\n\n*This command extracts subtitles and improves their readability using AI*",
+        "corrected_subtitles_usage": "✨ **Command usage:**\n`/corrected_subtitles <YouTube URL> [format:format]`\n\n**Examples:**\n`/corrected_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ`\n`/corrected_subtitles https://www.youtube.com/watch?v=dQw4w9WgXcQ format:pdf`\n\n**Available formats:** txt, docx, pdf\n*This command extracts subtitles and improves their readability using AI*",
         "corrected_subtitles_processing": "⏳ Extracting subtitles and improving them with AI...\n\n*This may take 1-2 minutes*",
         "corrected_subtitles_error": "❌ **Subtitle processing error**\n\n{error}\n\nTry again later or use another video.",
         "corrected_subtitles_file_error": "❌ **File creation error**\n\nFailed to create corrected subtitle file. Please try again.",

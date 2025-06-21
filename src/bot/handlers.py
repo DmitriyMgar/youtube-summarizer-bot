@@ -51,10 +51,6 @@ class BotHandlers:
         if settings.subscription_check_enabled:
             self.subscription_checker = await get_subscription_checker(settings.telegram_bot_token)
     
-    def _is_authorized_user(self, user_id: int) -> bool:
-        """Проверяет авторизацию пользователя"""
-        return not settings.allowed_users_list or user_id in settings.allowed_users_list
-    
     async def _check_subscription_access(self, user_id: int) -> bool:
         """Проверяет доступ пользователя на основе подписки на канал."""
         if not settings.subscription_check_enabled or not self.subscription_checker:
@@ -222,14 +218,6 @@ class BotHandlers:
             logger.warning(f"User {user.id} ({user.username}) denied access - not subscribed to channel")
             return
         
-        # Security check - validate allowed users
-        if settings.allowed_users_list and user.id not in settings.allowed_users_list:
-            await update.message.reply_text(
-                get_message("error_unauthorized")
-            )
-            logger.warning(f"Unauthorized user {user.id} ({user.username}) attempted to use bot")
-            return
-        
         # Rate limiting check
         if not await self.queue_manager.check_rate_limit(user.id):
             await update.message.reply_text(
@@ -300,7 +288,6 @@ class BotHandlers:
         """
         try:
             user_id = update.effective_user.id
-            message_text = update.message.text.strip()
             
             # Проверяем подписку на канал
             if not await self._check_subscription_access(user_id):
@@ -317,24 +304,33 @@ class BotHandlers:
                 logger.warning(f"User {user_id} denied access to raw_subtitles - not subscribed to channel")
                 return
             
-            # Проверяем авторизацию пользователя
-            if not self._is_authorized_user(user_id):
-                await update.message.reply_text(
-                    get_message("error_unauthorized"),
-                    parse_mode=ParseMode.MARKDOWN
-                )
-                return
-            
-            # Извлекаем URL из команды
-            parts = message_text.split(maxsplit=1)
-            if len(parts) < 2:
+            # Парсим аргументы команды
+            if not context.args:
                 await update.message.reply_text(
                     get_message("raw_subtitles_usage"),
                     parse_mode=ParseMode.MARKDOWN
                 )
                 return
             
-            video_url = parts[1].strip()
+            video_url = context.args[0]
+            output_format = settings.default_format
+            
+            # Проверяем на указание формата
+            if len(context.args) > 1:
+                for arg in context.args[1:]:
+                    if arg.startswith('format:'):
+                        requested_format = arg.split(':', 1)[1].lower()
+                        if requested_format in settings.supported_formats_list:
+                            output_format = requested_format
+                        else:
+                            await update.message.reply_text(
+                                get_message(
+                                    "error_unsupported_format",
+                                    format=requested_format,
+                                    available_formats=', '.join(settings.supported_formats_list)
+                                )
+                            )
+                            return
             
             # Валидация URL
             if not is_valid_youtube_url(video_url):
@@ -359,14 +355,13 @@ class BotHandlers:
             # Извлекаем субтитры
             subtitle_data = await self.youtube_processor.extract_raw_subtitles(video_url)
             
-            # Форматируем для файла
-            formatter = SubtitleFormatter()
-            file_content = formatter.format_for_file(subtitle_data)
+            # Создаем документ в выбранном формате
+            from src.documents.generator import DocumentGenerator
+            doc_generator = DocumentGenerator()
+            document_path = await doc_generator.create_subtitles_document(subtitle_data, output_format)
             
-            # Создаем временный файл
-            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as temp_file:
-                temp_file.write(file_content)
-                temp_file_path = temp_file.name
+            if not document_path:
+                raise Exception("Failed to create subtitles document")
             
             # Удаляем сообщение о процессе
             await context.bot.delete_message(
@@ -374,13 +369,8 @@ class BotHandlers:
                 message_id=processing_message.message_id
             )
             
-            # Создаем имя файла на основе названия видео
-            safe_title = "".join(c for c in subtitle_data['title'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            safe_title = safe_title[:50]  # Ограничиваем длину
-            filename = f"{safe_title}_subtitles.txt"
-            
             # Отправляем файл
-            with open(temp_file_path, 'rb') as file:
+            with open(document_path, 'rb') as file:
                 # Экранируем специальные символы в названиях для Markdown
                 safe_title = escape_markdown(subtitle_data['title'])
                 safe_channel = escape_markdown(subtitle_data['channel'])
@@ -388,18 +378,19 @@ class BotHandlers:
                 
                 await update.message.reply_document(
                     document=file,
-                    filename=filename,
-                    caption=f"📝 **Субтитры извлечены**\n\n"
+                    filename=document_path.name,
+                    caption=f"📝 **Субтитры извлечены ({output_format.upper()})**\n\n"
                            f"🎥 {safe_title}\n"
                            f"📺 {safe_channel}\n"
                            f"🗣 {safe_language} ({'🤖 Автогенерированные' if subtitle_data['auto_generated'] else '👤 Ручные'})\n"
-                           f"📊 Сегментов: {subtitle_data['subtitle_count']}",
+                           f"📊 Сегментов: {subtitle_data['subtitle_count']}\n"
+                           f"📄 Формат: {output_format.upper()}",
                     parse_mode=ParseMode.MARKDOWN
                 )
             
             # Удаляем временный файл
             try:
-                os.unlink(temp_file_path)
+                document_path.unlink()
             except:
                 pass
             
@@ -452,7 +443,6 @@ class BotHandlers:
         """
         try:
             user_id = update.effective_user.id
-            message_text = update.message.text.strip()
             
             # Проверяем подписку на канал
             if not await self._check_subscription_access(user_id):
@@ -469,24 +459,33 @@ class BotHandlers:
                 logger.warning(f"User {user_id} denied access to corrected_subtitles - not subscribed to channel")
                 return
             
-            # Проверяем авторизацию пользователя
-            if not self._is_authorized_user(user_id):
-                await update.message.reply_text(
-                    get_message("error_unauthorized"),
-                    parse_mode=ParseMode.MARKDOWN
-                )
-                return
-            
-            # Извлекаем URL из команды
-            parts = message_text.split(maxsplit=1)
-            if len(parts) < 2:
+            # Парсим аргументы команды
+            if not context.args:
                 await update.message.reply_text(
                     get_message("corrected_subtitles_usage"),
                     parse_mode=ParseMode.MARKDOWN
                 )
                 return
             
-            video_url = parts[1].strip()
+            video_url = context.args[0]
+            output_format = settings.default_format
+            
+            # Проверяем на указание формата
+            if len(context.args) > 1:
+                for arg in context.args[1:]:
+                    if arg.startswith('format:'):
+                        requested_format = arg.split(':', 1)[1].lower()
+                        if requested_format in settings.supported_formats_list:
+                            output_format = requested_format
+                        else:
+                            await update.message.reply_text(
+                                get_message(
+                                    "error_unsupported_format",
+                                    format=requested_format,
+                                    available_formats=', '.join(settings.supported_formats_list)
+                                )
+                            )
+                            return
             
             # Валидация URL
             if not is_valid_youtube_url(video_url):
@@ -515,14 +514,13 @@ class BotHandlers:
                 # Исправляем субтитры с помощью ИИ
                 corrected_data = await self.summarizer.correct_transcript(subtitle_data)
                 
-                # Форматируем для файла
-                formatter = SubtitleFormatter()
-                file_content = formatter.format_for_file(corrected_data)
+                # Создаем документ в выбранном формате
+                from src.documents.generator import DocumentGenerator
+                doc_generator = DocumentGenerator()
+                document_path = await doc_generator.create_subtitles_document(corrected_data, output_format)
                 
-                # Создаем временный файл
-                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as temp_file:
-                    temp_file.write(file_content)
-                    temp_file_path = temp_file.name
+                if not document_path:
+                    raise Exception("Failed to create subtitles document")
                 
                 # Удаляем сообщение о процессе
                 await context.bot.delete_message(
@@ -530,13 +528,8 @@ class BotHandlers:
                     message_id=processing_message.message_id
                 )
                 
-                # Создаем имя файла
-                safe_title = "".join(c for c in corrected_data['title'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
-                safe_title = safe_title[:50]
-                filename = f"{safe_title}_corrected_subtitles.txt"
-                
                 # Отправляем файл
-                with open(temp_file_path, 'rb') as file:
+                with open(document_path, 'rb') as file:
                     # Экранируем специальные символы в названиях для Markdown
                     safe_title = escape_markdown(corrected_data['title'])
                     safe_channel = escape_markdown(corrected_data['channel'])
@@ -544,19 +537,20 @@ class BotHandlers:
                     
                     await update.message.reply_document(
                         document=file,
-                        filename=filename,
-                        caption=f"📝 **Исправленные субтитры**\n\n"
+                        filename=document_path.name,
+                        caption=f"📝 **Исправленные субтитры ({output_format.upper()})**\n\n"
                                f"🎥 {safe_title}\n"
                                f"📺 {safe_channel}\n"
                                f"🗣 {safe_language} ({'🤖 Автогенерированные' if corrected_data['auto_generated'] else '👤 Ручные'})\n"
                                f"✨ Обработано ИИ для улучшения читаемости\n"
-                               f"📊 Сегментов: {len(corrected_data['subtitles'])}",
+                               f"📊 Сегментов: {len(corrected_data['subtitles'])}\n"
+                               f"📄 Формат: {output_format.upper()}",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 
                 # Удаляем временный файл
                 try:
-                    os.unlink(temp_file_path)
+                    document_path.unlink()
                 except:
                     pass
                 
