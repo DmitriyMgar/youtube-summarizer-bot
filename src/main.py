@@ -7,6 +7,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
+from datetime import datetime
 
 # Add src directory to Python path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -22,6 +23,8 @@ from ai.summarizer import VideoSummarizer
 from documents.generator import DocumentGenerator
 from utils.logging_config import setup_logging
 from localization import get_message, set_language
+from analytics.logger import get_activity_logger
+from analytics.models import VideoProcessingEvent
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -100,6 +103,12 @@ class YouTubeSummarizerBot:
     
     async def process_video_request(self, request):
         """Process a video summarization request."""
+        start_time = asyncio.get_event_loop().time()
+        success = False
+        error_message = None
+        video_info = {}
+        tokens_used = 0
+        
         try:
             # Notify user that processing has started
             await self.send_processing_update(
@@ -113,6 +122,8 @@ class YouTubeSummarizerBot:
             if video_data['processing_status'] == 'failed':
                 raise Exception(f"Video processing failed: {video_data.get('error', 'Unknown error')}")
             
+            video_info = video_data.get('video_info', {})
+            
             # Notify progress
             await self.send_processing_update(
                 request.chat_id,
@@ -124,6 +135,8 @@ class YouTubeSummarizerBot:
             
             if summary_data['processing_status'] == 'failed':
                 raise Exception(f"AI summarization failed: {summary_data.get('error', 'Unknown error')}")
+            
+            tokens_used = summary_data.get('tokens_used', 0)
             
             # Notify progress
             await self.send_processing_update(
@@ -147,9 +160,11 @@ class YouTubeSummarizerBot:
             # Mark request as completed
             await self.queue_manager.complete_request(request.user_id, success=True)
             
+            success = True
             logger.info(f"Successfully completed processing for user {request.user_id}")
             
         except Exception as e:
+            error_message = str(e)
             logger.error(f"Error processing request for user {request.user_id}: {e}")
             
             # Send error message to user
@@ -157,6 +172,35 @@ class YouTubeSummarizerBot:
             
             # Mark request as completed (with error)
             await self.queue_manager.complete_request(request.user_id, success=False)
+        
+        finally:
+            # Log video processing event
+            processing_time = asyncio.get_event_loop().time() - start_time
+            
+            try:
+                video_id = request.video_id or "unknown"
+                title = video_info.get('title', 'Unknown Video')
+                duration = video_info.get('duration', 0)
+                
+                event = VideoProcessingEvent(
+                    timestamp=datetime.now(),
+                    user_id=request.user_id,
+                    video_id=video_id,
+                    video_url=request.video_url,
+                    title=title,
+                    duration=duration,
+                    output_format=request.output_format,
+                    processing_time=processing_time,
+                    success=success,
+                    error_message=error_message,
+                    tokens_used=tokens_used
+                )
+                
+                activity_logger = get_activity_logger()
+                activity_logger.log_video_processing(event)
+                
+            except Exception as log_error:
+                logger.error(f"Failed to log video processing event: {log_error}")
     
     async def send_processing_update(self, chat_id: int, message: str):
         """Send processing status update to user."""

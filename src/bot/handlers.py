@@ -20,6 +20,7 @@ from utils.subscription_checker import get_subscription_checker
 from processing_queue.manager import QueueManager
 from youtube.processor import YouTubeProcessor
 from localization import get_message, set_language
+from analytics.decorators import log_user_activity
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -60,6 +61,7 @@ class BotHandlers:
             # В случае ошибки разрешаем доступ, чтобы не блокировать пользователей
             return True
     
+    @log_user_activity("start")
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command - welcome message and bot introduction."""
         user = update.effective_user
@@ -94,6 +96,7 @@ class BotHandlers:
         
         logger.info(f"User {user.id} ({user.username}) started the bot")
     
+    @log_user_activity("help")
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help command - detailed usage instructions."""
         help_text = get_message(
@@ -109,6 +112,7 @@ class BotHandlers:
             parse_mode=ParseMode.HTML
         )
     
+    @log_user_activity("formats")
     async def formats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /formats command - show available output formats."""
         formats_text = get_message("formats_title") + "\n\n"
@@ -127,6 +131,7 @@ class BotHandlers:
             parse_mode=ParseMode.MARKDOWN
         )
     
+    @log_user_activity("status")
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /status command - show processing queue status."""
         user_id = update.effective_user.id
@@ -148,6 +153,7 @@ class BotHandlers:
             parse_mode=ParseMode.MARKDOWN
         )
     
+    @log_user_activity("summarize")
     async def summarize_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /summarize command with URL parameter."""
         if not context.args:
@@ -179,6 +185,7 @@ class BotHandlers:
         
         await self.process_youtube_url(update, url, output_format)
     
+    @log_user_activity("url_message")
     async def handle_youtube_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle direct YouTube URL messages."""
         url = update.message.text.strip()
@@ -266,6 +273,7 @@ class BotHandlers:
                 get_message("error_general")
             )
     
+    @log_user_activity("cancel")
     async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /cancel command - cancel user's current request."""
         user_id = update.effective_user.id
@@ -279,6 +287,7 @@ class BotHandlers:
                 get_message("error_no_cancel")
             )
     
+    @log_user_activity("raw_subtitles")
     async def raw_subtitles_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Обработчик команды /raw_subtitles для извлечения субтитров без ИИ обработки
@@ -423,6 +432,7 @@ class BotHandlers:
                 )
                 logger.error(f"Unexpected error in raw_subtitles command: {str(e)}", exc_info=True)
 
+    @log_user_activity("corrected_subtitles")
     async def corrected_subtitles_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Обработчик команды /corrected_subtitles для извлечения и исправления субтитров

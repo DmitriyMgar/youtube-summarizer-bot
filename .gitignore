@@ -221,4 +221,26 @@ processed_videos/
 summaries/
 transcripts/
 cache/
-data/output/ 
+data/output/
+
+# Analytics and user activity data (contains personal information)
+data/analytics.db
+data/analytics.db-journal
+analytics_*.png
+*_commands.png
+*_daily.png  
+*_users.png
+*_videos.png
+reports/
+charts/
+
+# Analytics documentation (keep local only)
+ANALYTICS_README.md
+QUICK_START_ANALYTICS.md
+PRIVACY_NOTE.md
+*_ANALYTICS*.md
+
+# Analytics exports and temporary files
+analytics_export/
+*.csv.bak
+user_activity_*.json 
