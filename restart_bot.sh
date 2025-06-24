@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🔄 Перезапуск YouTube Summarizer Bot..."
+echo "🔄 Перезапуск YouTube SummaryBot..."
 echo "=" * 50
 
 cd /home/botuser/youtube-summarizer-bot

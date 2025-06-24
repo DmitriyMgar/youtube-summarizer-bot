@@ -412,7 +412,7 @@ class YouTubeSummarizerBot:
             await self.start_processing_worker()
             
             # Start the bot
-            logger.info("Starting YouTube Summarizer Bot...")
+            logger.info("Starting YouTube SummaryBot...")
             await self.application.initialize()
             await self.application.start()
             await self.application.updater.start_polling()

@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     youtube_api_key: Optional[str] = Field(None, env='YOUTUBE_API_KEY')
     
     # Application Settings
-    bot_name: str = Field('YouTube Summarizer Bot', env='BOT_NAME')
+    bot_name: str = Field('YouTube SummaryBot', env='BOT_NAME')
     bot_version: str = Field('1.0.0', env='BOT_VERSION')
     debug: bool = Field(False, env='DEBUG')
     log_level: str = Field('INFO', env='LOG_LEVEL')

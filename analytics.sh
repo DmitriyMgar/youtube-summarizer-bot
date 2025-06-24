@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}📊 YouTube Summarizer Bot Analytics${NC}"
+echo -e "${BLUE}📊 YouTube SummaryBot Analytics${NC}"
 echo "=================================="
 
 # Check if Python is available
