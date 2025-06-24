@@ -789,6 +789,12 @@ class BotHandlers:
         
         # Получаем сессию пользователя
         session = await self.conversation_manager.get_user_session(user_id)
+        if not session:
+            await query.edit_message_text(
+                get_message("session_expired")
+            )
+            return
+        
         if callback_data == 'back_to_operations':
             # Возвращаемся к выбору операции
             from src.bot.conversation_manager import ConversationState
@@ -832,9 +838,8 @@ class BotHandlers:
             parse_mode='Markdown'
         )
         
-        # Получаем обновленную сессию и ставим запрос в очередь
-        updated_session = await self.conversation_manager.get_user_session(user_id)
-        await self._queue_interactive_request(updated_session, query.message.chat_id)
+        # Ставим запрос в очередь
+        await self._queue_interactive_request(session, query.message.chat_id)
     
     @log_user_activity("processing_control")
     async def handle_processing_controls(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -858,15 +863,6 @@ class BotHandlers:
         try:
             # Импортируем здесь чтобы избежать циклических импортов
             from src.processing_queue.manager import ProcessingRequest
-            
-            # Проверяем что все данные заполнены
-            if not session.selected_format:
-                logger.error(f"Cannot queue request: format not selected for user {session.user_id}")
-                return
-            
-            if not session.selected_operation:
-                logger.error(f"Cannot queue request: operation not selected for user {session.user_id}")
-                return
             
             request = ProcessingRequest(
                 user_id=session.user_id,
@@ -924,6 +920,12 @@ async def get_command_handlers(queue_manager: QueueManager, youtube_processor: Y
         CallbackQueryHandler(
             handlers.handle_processing_controls,
             pattern=r'^cancel_processing'
+        ),
+        
+        # Legacy: Keep old URL handler for backward compatibility
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.Regex(r'(?:youtube\.com|youtu\.be)'),
+            handlers.handle_youtube_url
         )
     ]
 

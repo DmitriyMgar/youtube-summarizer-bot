@@ -108,6 +108,8 @@ class YouTubeSummarizerBot:
         error_message = None
         video_info = {}
         tokens_used = 0
+        summary_data = {}
+        subtitle_data = {}
         
         try:
             # Notify user that processing has started
@@ -124,38 +126,123 @@ class YouTubeSummarizerBot:
             
             video_info = video_data.get('video_info', {})
             
-            # Notify progress
-            await self.send_processing_update(
-                request.chat_id,
-                get_message("processing_ai_summary")
-            )
-            
-            # Step 2: Generate AI summary
-            summary_data = await self.video_summarizer.summarize_video(video_data)
-            
-            if summary_data['processing_status'] == 'failed':
-                raise Exception(f"AI summarization failed: {summary_data.get('error', 'Unknown error')}")
-            
-            tokens_used = summary_data.get('tokens_used', 0)
-            
-            # Notify progress
-            await self.send_processing_update(
-                request.chat_id,
-                get_message("processing_document")
-            )
-            
-            # Step 3: Generate document
-            document_path = await self.document_generator.create_document(
-                video_data=video_data,
-                summary_data=summary_data,
-                output_format=request.output_format
-            )
+            # Step 2: Process based on operation type
+            if request.operation_type in ['raw_subtitles', 'corrected_subtitles']:
+                # For subtitle operations, skip AI processing and create subtitle document
+                if request.operation_type == 'corrected_subtitles':
+                    # Notify AI processing for corrected subtitles
+                    await self.send_processing_update(
+                        request.chat_id,
+                        get_message("processing_ai_summary")
+                    )
+                    
+                    # Prepare subtitle data for AI correction
+                    transcripts = video_data.get('transcripts', {})
+                    video_info = video_data.get('video_info', {})
+                    
+                    subtitle_data_for_ai = {
+                        'title': video_info.get('title', 'Unknown Video'),
+                        'channel': video_info.get('uploader', 'Unknown'),
+                        'video_id': video_info.get('id', ''),
+                        'language': transcripts.get('language', 'Unknown'),
+                        'language_code': transcripts.get('language_code', ''),
+                        'auto_generated': transcripts.get('is_generated', True),
+                        'subtitles': transcripts.get('transcripts', []),
+                        'duration': video_info.get('duration', 0)
+                    }
+                    
+                    # Process subtitles with AI correction
+                    corrected_data = await self.video_summarizer.correct_transcript(subtitle_data_for_ai)
+                    if not corrected_data.get('subtitles'):
+                        raise Exception("AI subtitle correction failed: No corrected subtitles returned")
+                    
+                    tokens_used = corrected_data.get('tokens_used', 0)
+                    # Use corrected transcript for document generation
+                    corrected_transcripts = {
+                        'language': corrected_data.get('language', 'Unknown'),
+                        'language_code': corrected_data.get('language_code', ''),
+                        'is_generated': corrected_data.get('auto_generated', True),
+                        'transcripts': corrected_data.get('subtitles', [])
+                    }
+                    
+                    subtitle_data = {
+                        'title': video_info.get('title', 'Unknown Video'),
+                        'channel': video_info.get('uploader', 'Unknown'),
+                        'duration': video_info.get('duration', 0),
+                        'video_id': video_info.get('id', ''),
+                        'language': corrected_transcripts.get('language', 'Unknown'),
+                        'language_code': corrected_transcripts.get('language_code', ''),
+                        'auto_generated': corrected_transcripts.get('is_generated', True),
+                        'subtitles': corrected_transcripts.get('transcripts', []),
+                        'corrected': True,
+                        'correction_method': 'AI Enhancement'
+                    }
+                else:
+                    # Raw subtitles - no AI processing needed
+                    video_info = video_data.get('video_info', {})
+                    transcripts = video_data.get('transcripts', {})
+                    
+                    subtitle_data = {
+                        'title': video_info.get('title', 'Unknown Video'),
+                        'channel': video_info.get('uploader', 'Unknown'),
+                        'duration': video_info.get('duration', 0),
+                        'video_id': video_info.get('id', ''),
+                        'language': transcripts.get('language', 'Unknown'),
+                        'language_code': transcripts.get('language_code', ''),
+                        'auto_generated': transcripts.get('is_generated', True),
+                        'subtitles': transcripts.get('transcripts', []),
+                        'corrected': False
+                    }
+                
+                # Notify document creation
+                await self.send_processing_update(
+                    request.chat_id,
+                    get_message("processing_document")
+                )
+                
+                # Step 3: Generate subtitle document
+                document_path = await self.document_generator.create_subtitles_document(
+                    subtitle_data=subtitle_data,
+                    output_format=request.output_format
+                )
+                
+            else:
+                # For summarization, use the full AI pipeline
+                # Notify progress
+                await self.send_processing_update(
+                    request.chat_id,
+                    get_message("processing_ai_summary")
+                )
+                
+                # Step 2: Generate AI summary
+                summary_data = await self.video_summarizer.summarize_video(video_data)
+                
+                if summary_data['processing_status'] == 'failed':
+                    raise Exception(f"AI summarization failed: {summary_data.get('error', 'Unknown error')}")
+                
+                tokens_used = summary_data.get('tokens_used', 0)
+                
+                # Notify progress
+                await self.send_processing_update(
+                    request.chat_id,
+                    get_message("processing_document")
+                )
+                
+                # Step 3: Generate summary document
+                document_path = await self.document_generator.create_document(
+                    video_data=video_data,
+                    summary_data=summary_data,
+                    output_format=request.output_format
+                )
             
             if not document_path or not document_path.exists():
                 raise Exception("Document generation failed")
             
             # Step 4: Send completed document
-            await self.send_completed_document(request, document_path, video_data, summary_data)
+            if request.operation_type in ['raw_subtitles', 'corrected_subtitles']:
+                await self.send_completed_subtitle_document(request, document_path, video_data, subtitle_data)
+            else:
+                await self.send_completed_document(request, document_path, video_data, summary_data)
             
             # Mark request as completed
             await self.queue_manager.complete_request(request.user_id, success=True)
@@ -189,7 +276,7 @@ class YouTubeSummarizerBot:
                     video_url=request.video_url,
                     title=title,
                     duration=duration,
-                    output_format=request.output_format,
+                    output_format=request.output_format or 'txt',  # Защита от None
                     processing_time=processing_time,
                     success=success,
                     error_message=error_message,
@@ -213,7 +300,7 @@ class YouTubeSummarizerBot:
             logger.error(f"Error sending update to chat {chat_id}: {e}")
     
     async def send_completed_document(self, request, document_path: Path, video_data: dict, summary_data: dict):
-        """Send completed document to user."""
+        """Send completed summary document to user."""
         try:
             video_info = video_data.get('video_info', {})
             summary = summary_data.get('summary', {})
@@ -247,6 +334,59 @@ class YouTubeSummarizerBot:
                 
         except Exception as e:
             logger.error(f"Error sending completed document: {e}")
+            await self.send_error_message(request.chat_id, get_message("document_send_failed"))
+
+    async def send_completed_subtitle_document(self, request, document_path: Path, video_data: dict, subtitle_data: dict):
+        """Send completed subtitle document to user."""
+        try:
+            video_info = video_data.get('video_info', {})
+            
+            # Prepare completion message for subtitles
+            duration = f"{video_info.get('duration', 0) // 60}:{video_info.get('duration', 0) % 60:02d}"
+            
+            if subtitle_data.get('corrected', False):
+                # Message for corrected subtitles
+                completion_message = f"""
+✅ **Субтитры исправлены и готовы!**
+
+🎬 **{video_info.get('title', 'Unknown Title')}**
+⏱️ **Длительность:** {duration}
+✨ **Обработка:** {subtitle_data.get('correction_method', 'AI Enhancement')}
+📄 **Формат:** {request.output_format.upper()}
+
+📁 Документ прикреплен ниже!
+                """.strip()
+            else:
+                # Message for raw subtitles  
+                completion_message = f"""
+✅ **Субтитры извлечены и готовы!**
+
+🎬 **{video_info.get('title', 'Unknown Title')}**
+⏱️ **Длительность:** {duration}
+📝 **Тип:** Оригинальные субтитры
+📄 **Формат:** {request.output_format.upper()}
+
+📁 Документ прикреплен ниже!
+                """.strip()
+            
+            # Send document
+            with open(document_path, 'rb') as doc_file:
+                await self.application.bot.send_document(
+                    chat_id=request.chat_id,
+                    document=doc_file,
+                    filename=document_path.name,
+                    caption=completion_message,
+                    parse_mode='Markdown'
+                )
+            
+            # Clean up temporary file
+            try:
+                document_path.unlink()
+            except Exception as e:
+                logger.warning(f"Could not delete temporary file {document_path}: {e}")
+                
+        except Exception as e:
+            logger.error(f"Error sending completed subtitle document: {e}")
             await self.send_error_message(request.chat_id, get_message("document_send_failed"))
     
     async def send_error_message(self, chat_id: int, error_message: str):

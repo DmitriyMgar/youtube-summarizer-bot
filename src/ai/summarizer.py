@@ -448,6 +448,8 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
             result["subtitles"] = corrected_subtitles
             result["corrected"] = True
             result["correction_method"] = "ai_grammar_fix"
+            result["tokens_used"] = 0  # TODO: Track actual token usage
+            result["processing_status"] = "completed"
             
             return result
             

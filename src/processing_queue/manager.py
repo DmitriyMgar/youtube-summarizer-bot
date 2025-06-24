@@ -30,6 +30,8 @@ class ProcessingRequest:
     status: str = 'queued'
     timestamp: float = None
     estimated_completion: float = None
+    operation_type: str = 'summarize'  # NEW: 'summarize', 'raw_subtitles', 'corrected_subtitles'
+    is_interactive: bool = False       # NEW: Flag for interactive requests
     
     def __post_init__(self):
         if self.timestamp is None:
@@ -78,28 +80,15 @@ class QueueManager:
     
     async def add_request(
         self, 
-        user_id: int, 
-        video_id: str, 
-        video_url: str, 
-        output_format: str, 
-        chat_id: int
+        request: ProcessingRequest
     ) -> bool:
-        """Add a new processing request to the queue."""
+        """Add a ProcessingRequest object to the queue."""
         try:
             # Check if user already has a pending request
-            existing_request = await self.get_user_status(user_id)
+            existing_request = await self.get_user_status(request.user_id)
             if existing_request and existing_request['status'] in ['queued', 'processing']:
-                logger.warning(f"User {user_id} already has a pending request")
+                logger.warning(f"User {request.user_id} already has a pending request")
                 return False
-            
-            # Create processing request
-            request = ProcessingRequest(
-                user_id=user_id,
-                video_id=video_id,
-                video_url=video_url,
-                output_format=output_format,
-                chat_id=chat_id
-            )
             
             if self.redis_client:
                 # Add to Redis queue
@@ -109,7 +98,7 @@ class QueueManager:
                 # Track user request
                 await self.redis_client.hset(
                     self.user_requests_key, 
-                    str(user_id), 
+                    str(request.user_id), 
                     request_data
                 )
                 
@@ -123,14 +112,36 @@ class QueueManager:
                     self._memory_user_requests = {}
                 
                 self._memory_queue.insert(0, request)
-                self._memory_user_requests[str(user_id)] = request
+                self._memory_user_requests[str(request.user_id)] = request
             
-            logger.info(f"Added processing request for user {user_id}, video {video_id}")
+            logger.info(f"Added processing request for user {request.user_id}, video {request.video_id}, operation: {request.operation_type}")
             return True
             
         except Exception as e:
             logger.error(f"Error adding request to queue: {e}")
             return False
+    
+    async def add_legacy_request(
+        self, 
+        user_id: int, 
+        video_id: str, 
+        video_url: str, 
+        output_format: str, 
+        chat_id: int
+    ) -> bool:
+        """Add a new processing request to the queue (legacy method)."""
+        # Create processing request with legacy parameters
+        request = ProcessingRequest(
+            user_id=user_id,
+            video_id=video_id,
+            video_url=video_url,
+            output_format=output_format,
+            chat_id=chat_id,
+            operation_type='summarize',  # Default for legacy requests
+            is_interactive=False
+        )
+        
+        return await self.add_request(request)
     
     async def get_next_request(self) -> Optional[ProcessingRequest]:
         """Get the next request from the queue for processing."""
