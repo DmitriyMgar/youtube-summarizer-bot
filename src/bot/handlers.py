@@ -939,12 +939,9 @@ def get_bot_commands() -> List[BotCommand]:
             return [
                 BotCommand("start", commands.get("start", "Запустить бота")),
                 BotCommand("help", commands.get("help", "Получить помощь")),
-                BotCommand("summarize", commands.get("summarize", "Создать изложение видео YouTube")),
                 BotCommand("status", commands.get("status", "Проверить статус обработки")),
                 BotCommand("formats", commands.get("formats", "Посмотреть доступные форматы")),
-                BotCommand("cancel", commands.get("cancel", "Отменить текущий запрос")),
-                BotCommand("raw_subtitles", commands.get("raw_subtitles", "Извлечь субтитры без ИИ обработки")),
-                BotCommand("corrected_subtitles", commands.get("corrected_subtitles", "Извлечь и исправить субтитры"))
+                BotCommand("cancel", commands.get("cancel", "Отменить текущий запрос"))
             ]
     except Exception as e:
         logger.warning(f"Error getting localized commands: {e}")
@@ -953,10 +950,7 @@ def get_bot_commands() -> List[BotCommand]:
     return [
         BotCommand("start", "Запустить бота и увидеть приветственное сообщение"),
         BotCommand("help", "Получить подробную справку и инструкции по использованию"),
-        BotCommand("summarize", "Создать изложение видео YouTube"),
         BotCommand("status", "Проверить статус обработки"),
         BotCommand("formats", "Посмотреть доступные форматы вывода"),
-        BotCommand("cancel", "Отменить текущий запрос на обработку"),
-        BotCommand("raw_subtitles", "Извлечь субтитры без ИИ обработки"),
-        BotCommand("corrected_subtitles", "Извлечь и исправить субтитры")
+        BotCommand("cancel", "Отменить текущий запрос на обработку")
     ] 

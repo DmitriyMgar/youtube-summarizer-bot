@@ -115,7 +115,7 @@ class YouTubeSummarizerBot:
             # Notify user that processing has started
             await self.send_processing_update(
                 request.chat_id,
-                "🔄 Processing started! Extracting video content..."
+                get_message("processing_video_started")
             )
             
             # Step 1: Process YouTube video
@@ -133,7 +133,7 @@ class YouTubeSummarizerBot:
                     # Notify AI processing for corrected subtitles
                     await self.send_processing_update(
                         request.chat_id,
-                        get_message("processing_ai_summary")
+                        get_message("processing_ai_correction")
                     )
                     
                     # Prepare subtitle data for AI correction

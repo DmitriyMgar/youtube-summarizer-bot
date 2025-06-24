@@ -487,43 +487,77 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
 
     def _build_correction_prompt(self, text: str, subtitle_data: dict) -> str:
         """Создание промпта для коррекции субтитров"""
-        language = subtitle_data.get("language", "русский")
+        source_language = subtitle_data.get("language", "неизвестный")
         auto_generated = subtitle_data.get("auto_generated", True)
+        
+        # Получаем целевой язык из настроек
+        from config.settings import get_settings
+        settings = get_settings()
+        target_language_code = settings.language
+        target_language = "русский" if target_language_code == "ru" else "английский"
         
         correction_type = "автоматически сгенерированных" if auto_generated else "ручных"
         
+        # Проверяем нужен ли перевод
+        need_translation = (
+            source_language.lower() != target_language.lower() and 
+            not (source_language.lower() in ["russian", "русский"] and target_language == "русский") and
+            not (source_language.lower() in ["english", "английский"] and target_language == "английский")
+        )
+        
+        if need_translation:
+            task_description = f"Перевести на {target_language} язык и исправить грамматику, пунктуацию и структуру текста {correction_type} субтитров видео."
+            additional_instruction = f"8. ПЕРЕВЕДИ весь текст на {target_language} язык"
+        else:
+            task_description = f"Исправить грамматику, пунктуацию и структуру текста {correction_type} субтитров видео."
+            additional_instruction = f"8. Оставь текст на {target_language} языке"
+        
         prompt = f"""
-Задача: Исправить грамматику, пунктуацию и структуру текста {correction_type} субтитров видео.
+Задача: {task_description}
 
 Видео: "{subtitle_data.get('title', 'Неизвестно')}"
-Язык: {language}
+Исходный язык субтитров: {source_language}
+Целевой язык (язык пользователя): {target_language}
 Тип субтитров: {correction_type}
 
 ВАЖНО: 
 1. Сохраняй маркеры [номер] в начале каждого сегмента - они нужны для синхронизации
-2. Исправляй только грамматику, пунктуацию и структуру предложений
+2. Исправляй грамматику, пунктуацию и структуру предложений
 3. НЕ изменяй смысл и содержание
 4. НЕ добавляй новую информацию
 5. Объединяй короткие фразы в полные предложения где это логично
 6. Убирай повторы и заикания
 7. Улучшай читаемость, сохраняя естественность речи
+{additional_instruction}
 
 Исходный текст субтитров:
 {text}
 
-Исправленный текст:"""
+Исправленный текст на {target_language} языке:"""
 
         return prompt
 
     async def _make_correction_request(self, prompt: str) -> str:
         """Отправка запроса к OpenAI для коррекции"""
         try:
+            # Получаем целевой язык из настроек
+            from config.settings import get_settings
+            settings_instance = get_settings()
+            target_language = "русский" if settings_instance.language == "ru" else "английский"
+            
+            system_content = f"""Ты эксперт по редактированию текстов и переводу. Твоя задача - улучшить качество субтитров, при необходимости перевести их на {target_language} язык, сохраняя их смысл и структуру временных меток.
+
+КРИТИЧЕСКИ ВАЖНО:
+- Если исходный язык субтитров НЕ {target_language}, то ОБЯЗАТЕЛЬНО переведи весь текст на {target_language} язык
+- Сохраняй все маркеры [номер] для синхронизации
+- Результат должен быть на {target_language} языке"""
+
             response = await self.client.chat.completions.create(
                 model=settings.openai_model,
                 messages=[
                     {
                         "role": "system", 
-                        "content": "Ты эксперт по редактированию текстов. Твоя задача - улучшить качество субтитров, сохраняя их смысл и структуру временных меток."
+                        "content": system_content
                     },
                     {"role": "user", "content": prompt}
                 ],
