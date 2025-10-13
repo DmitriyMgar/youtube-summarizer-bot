@@ -93,7 +93,7 @@ DEBUG=False
 LOG_LEVEL=INFO
 
 # Processing Limits
-MAX_VIDEO_DURATION=3600
+MAX_VIDEO_DURATION=5400
 MAX_QUEUE_SIZE=100
 PROCESSING_TIMEOUT=300
 
@@ -231,7 +231,7 @@ mypy src/
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | Required |
 | `OPENAI_API_KEY` | OpenAI API key | Required |
 | `OPENAI_MODEL` | GPT model to use | `gpt-4o` |
-| `MAX_VIDEO_DURATION` | Max video length (seconds) | `3600` |
+| `MAX_VIDEO_DURATION` | Max video length (seconds) | `5400` |
 | `SUPPORTED_FORMATS` | Output formats | `txt,docx,pdf` |
 | `REDIS_HOST` | Redis server host | `localhost` |
 | `LOG_LEVEL` | Logging level | `INFO` |
@@ -244,7 +244,7 @@ mypy src/
 
 ### Processing Limits
 
-- **Video Duration**: Maximum 1 hour (configurable)
+- **Video Duration**: Maximum 90 minutes (configurable)
 - **Queue Size**: Maximum 100 concurrent requests
 - **Rate Limiting**: 10 requests per minute per user
 - **File Cleanup**: Temporary files deleted after 24 hours

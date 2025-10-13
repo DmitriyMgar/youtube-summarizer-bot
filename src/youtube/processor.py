@@ -93,10 +93,14 @@ class YouTubeProcessor:
             # Validate video duration
             duration = video_info.get('duration', 0)
             if duration > settings.max_video_duration:
-                raise ValueError(
-                    f"Video duration ({duration}s) exceeds maximum allowed "
-                    f"({settings.max_video_duration}s)"
-                )
+                from src.localization.messages import get_message
+                video_minutes = round(duration / 60)
+                max_minutes = round(settings.max_video_duration / 60)
+                raise ValueError(get_message(
+                    "video_duration_exceeded",
+                    video_minutes=video_minutes,
+                    max_minutes=max_minutes
+                ))
             
             return {
                 'id': video_info.get('id'),

@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     log_level: str = Field('INFO', env='LOG_LEVEL')
     
     # Processing Configuration
-    max_video_duration: int = Field(3600, env='MAX_VIDEO_DURATION')  # 1 hour
+    max_video_duration: int = Field(5400, env='MAX_VIDEO_DURATION')  # 1.5 hours (90 minutes)
     max_queue_size: int = Field(100, env='MAX_QUEUE_SIZE')
     processing_timeout: int = Field(300, env='PROCESSING_TIMEOUT')  # 5 minutes
     

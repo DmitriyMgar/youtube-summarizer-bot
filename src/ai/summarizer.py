@@ -27,6 +27,13 @@ class VideoSummarizer:
             api_key=settings.openai_api_key
         )
         
+        # Token limits for different models
+        self.model_limits = {
+            'gpt-4o': 30000,  # TPM limit from error
+            'gpt-4': 20000,
+            'gpt-3.5-turbo': 15000
+        }
+        
         # Summarization prompts
         self.system_prompt = """You are an expert video content summarizer. Your task is to analyze YouTube video content and create comprehensive, well-structured summaries.
 
@@ -83,6 +90,22 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
             # Prepare content for AI analysis
             formatted_content = self._format_video_content(video_data)
             
+            # Check token limits before sending request
+            total_request_tokens = self._estimate_tokens(self.system_prompt) + self._estimate_tokens(formatted_content)
+            max_model_tokens = self.model_limits.get(settings.openai_model, 15000)
+            
+            if total_request_tokens > max_model_tokens * 0.8:  # 80% от лимита для безопасности
+                logger.warning(f"Summarization request has {total_request_tokens} estimated tokens, may exceed limit")
+                # Пересоздаем контент с меньшим лимитом токенов для транскрипта
+                video_data_copy = video_data.copy()
+                transcripts = video_data_copy.get('transcripts', {})
+                if transcripts.get('transcripts'):
+                    # Дополнительно ограничиваем транскрипт для суммаризации
+                    limited_transcripts = transcripts['transcripts'][:len(transcripts['transcripts'])//2]  # Берем первую половину
+                    video_data_copy['transcripts'] = {**transcripts, 'transcripts': limited_transcripts}
+                    formatted_content = self._format_video_content(video_data_copy)
+                    logger.info(f"Reduced transcript size for summarization, using {len(limited_transcripts)} segments")
+            
             # Create chat completion request - Context7 pattern
             completion = await self.client.chat.completions.create(
                 model=settings.openai_model,
@@ -115,14 +138,27 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
             return result
             
         except Exception as e:
-            logger.error(f"Error in AI summarization: {e}")
+            error_str = str(e)
+            logger.error(f"Error in AI summarization: {error_str}")
+            
+            # Обработка специфических ошибок OpenAI
+            if "rate_limit_exceeded" in error_str or "429" in error_str:
+                if "tokens per min" in error_str:
+                    error_msg = "🤖 **Слишком длинное видео для ИИ-обработки**\n\nВаше видео содержит слишком много текста для создания резюме за один раз. Попробуйте:\n• Обработать более короткое видео\n• Использовать команду `/raw_subtitles` для получения субтитров\n• Попробовать позже"
+                else:
+                    error_msg = "🤖 **Превышен лимит запросов к ИИ**\n\nСлишком много запросов в минуту. Попробуйте через 1-2 минуты."
+            elif "insufficient_quota" in error_str:
+                error_msg = "🤖 **Исчерпан лимит ИИ-токенов**\n\nВременная проблема с ИИ-сервисом. Попробуйте позже или обратитесь к администратору."
+            else:
+                error_msg = f"Ошибка при создании ИИ-резюме: {error_str[:100]}..."
+            
             return {
                 'summary': {
-                    'executive_summary': 'Failed to generate summary due to AI processing error.',
-                    'error': str(e)
+                    'executive_summary': 'Не удалось создать резюме из-за ошибки ИИ-обработки.',
+                    'error': error_msg
                 },
                 'processing_status': 'failed',
-                'error': str(e),
+                'error': error_msg,
                 'timestamp': datetime.utcnow().isoformat()
             }
     
@@ -193,17 +229,14 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
             if text:
                 formatted_lines.append(f"[{timestamp}] {text}")
         
-        # Limit transcript length to prevent token overflow
+        # Intelligent token-based truncation
         full_transcript = '\n'.join(formatted_lines)
-        if len(full_transcript) > 8000:  # Rough character limit
-            # Truncate and add notice
-            truncated = full_transcript[:8000]
-            last_newline = truncated.rfind('\n')
-            if last_newline > 0:
-                truncated = truncated[:last_newline]
-            full_transcript = truncated + '\n\n[Transcript truncated for length...]'
         
-        return full_transcript
+        # For summarization, allow more tokens (15000), for correction use less (10000)
+        max_tokens_for_transcript = 15000
+        
+        # Apply smart truncation that preserves structure
+        return self._truncate_text_to_token_limit(full_transcript, max_tokens_for_transcript)
     
     def _format_timestamp(self, seconds: float) -> str:
         """Format seconds to MM:SS format."""
@@ -458,7 +491,7 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
             raise
 
     def _prepare_text_for_correction(self, subtitles: list) -> str:
-        """Подготовка текста субтитров для ИИ коррекции"""
+        """Подготовка текста субтитров для ИИ коррекции с ограничением токенов"""
         # Группируем короткие фразы в предложения
         sentences = []
         current_sentence = []
@@ -483,7 +516,13 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
         if current_sentence:
             sentences.append(' '.join(current_sentence))
         
-        return '\n'.join(sentences)
+        full_text = '\n'.join(sentences)
+        
+        # Ограничиваем текст для коррекции (учитываем, что нужно место для промпта и ответа)
+        # Оставляем 20000 токенов для самого текста субтитров
+        max_tokens_for_subtitles = 20000
+        
+        return self._truncate_text_to_token_limit(full_text, max_tokens_for_subtitles)
 
     def _build_correction_prompt(self, text: str, subtitle_data: dict) -> str:
         """Создание промпта для коррекции субтитров"""
@@ -538,7 +577,7 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
         return prompt
 
     async def _make_correction_request(self, prompt: str) -> str:
-        """Отправка запроса к OpenAI для коррекции"""
+        """Отправка запроса к OpenAI для коррекции с улучшенной обработкой ошибок"""
         try:
             # Получаем целевой язык из настроек
             from config.settings import get_settings
@@ -551,6 +590,16 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
 - Если исходный язык субтитров НЕ {target_language}, то ОБЯЗАТЕЛЬНО переведи весь текст на {target_language} язык
 - Сохраняй все маркеры [номер] для синхронизации
 - Результат должен быть на {target_language} языке"""
+
+            # Проверяем приблизительное количество токенов в запросе
+            total_request_tokens = self._estimate_tokens(system_content) + self._estimate_tokens(prompt)
+            max_model_tokens = self.model_limits.get(settings.openai_model, 15000)
+            
+            if total_request_tokens > max_model_tokens * 0.8:  # 80% от лимита для безопасности
+                logger.warning(f"Request has {total_request_tokens} estimated tokens, may exceed limit")
+                # Дополнительно сокращаем промпт если нужно
+                available_tokens = int(max_model_tokens * 0.6)  # 60% для промпта, 40% для ответа
+                prompt = self._truncate_text_to_token_limit(prompt, available_tokens - self._estimate_tokens(system_content))
 
             response = await self.client.chat.completions.create(
                 model=settings.openai_model,
@@ -569,8 +618,19 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
             return response.choices[0].message.content.strip()
             
         except Exception as e:
-            logger.error(f"OpenAI API error during correction: {str(e)}")
-            raise
+            error_str = str(e)
+            logger.error(f"OpenAI API error during correction: {error_str}")
+            
+            # Обработка специфических ошибок
+            if "rate_limit_exceeded" in error_str or "429" in error_str:
+                if "tokens per min" in error_str:
+                    raise ValueError("🤖 **Слишком длинное видео для ИИ-обработки**\n\nВаше видео содержит слишком много текста для обработки за один раз. Попробуйте:\n• Использовать команду `/raw_subtitles` для получения необработанных субтитров\n• Обработать более короткое видео\n• Попробовать позже")
+                else:
+                    raise ValueError("🤖 **Превышен лимит запросов к ИИ**\n\nСлишком много запросов в минуту. Попробуйте через 1-2 минуты.")
+            elif "insufficient_quota" in error_str:
+                raise ValueError("🤖 **Исчерпан лимит ИИ-токенов**\n\nВременная проблема с ИИ-сервисом. Попробуйте позже или обратитесь к администратору.")
+            else:
+                raise ValueError(f"🤖 **Ошибка ИИ-обработки**\n\nНе удалось обработать субтитры: {error_str[:100]}...")
 
     def _parse_corrected_response(self, corrected_text: str, original_subtitles: list) -> list:
         """Парсинг исправленного текста и восстановление временных меток"""
@@ -616,3 +676,52 @@ CRITICAL: Generate the summary in {user_language}. This is the user's preferred 
             return original_subtitles
         
         return corrected_segments 
+
+    def _estimate_tokens(self, text: str) -> int:
+        """
+        Estimate token count for a given text.
+        Rough approximation: 1 token ≈ 4 characters for English, 3 for Russian
+        """
+        # Adjust for language - Russian uses more tokens per character
+        if any(ord(char) > 127 for char in text):  # Contains non-ASCII (likely Russian)
+            return len(text) // 3
+        else:
+            return len(text) // 4
+    
+    def _truncate_text_to_token_limit(self, text: str, max_tokens: int) -> str:
+        """
+        Truncate text to fit within token limit while preserving structure.
+        """
+        estimated_tokens = self._estimate_tokens(text)
+        
+        if estimated_tokens <= max_tokens:
+            return text
+        
+        # Calculate how much to truncate
+        ratio = max_tokens / estimated_tokens
+        max_chars = int(len(text) * ratio * 0.9)  # 10% safety margin
+        
+        # Try to truncate at sentence boundaries
+        lines = text.split('\n')
+        truncated_lines = []
+        current_length = 0
+        
+        for line in lines:
+            if current_length + len(line) + 1 <= max_chars:
+                truncated_lines.append(line)
+                current_length += len(line) + 1
+            else:
+                break
+        
+        if truncated_lines:
+            result = '\n'.join(truncated_lines)
+            result += f"\n\n[Текст сокращен для соответствия лимиту токенов. Показано {len(truncated_lines)} из {len(lines)} сегментов]"
+            return result
+        
+        # Fallback: simple character truncation
+        truncated = text[:max_chars]
+        last_space = truncated.rfind(' ')
+        if last_space > max_chars * 0.8:
+            truncated = truncated[:last_space]
+        
+        return truncated + "\n\n[Текст сокращен для соответствия лимиту токенов]" 
